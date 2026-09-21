@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>                 <string>Casa</string>
+    <key>CFBundleDisplayName</key>          <string>Casa</string>
+    <key>CFBundleExecutable</key>           <string>Casa</string>
+    <key>CFBundleIdentifier</key>           <string>com.jackharvest.casa</string>
+    <key>CFBundlePackageType</key>          <string>APPL</string>
+    <!-- Both substituted by Scripts/build-app.sh. The marketing version comes
+         from the VERSION file at the repo root — one source of truth — and the
+         build number is the commit count, which is monotonic and reproducible
+         from any checkout. -->
+    <key>CFBundleShortVersionString</key>   <string>__VERSION__</string>
+    <key>CFBundleVersion</key>              <string>__BUILD__</string>
+
+    <!-- Where the updater looks. In the plist rather than compiled in, so a
+         fork can point at its own releases without touching code. -->
+    <key>CasaUpdateRepository</key>         <string>jackharvest/Casa</string>
+    <key>LSMinimumSystemVersion</key>       <string>14.0</string>
+    <key>NSPrincipalClass</key>             <string>NSApplication</string>
+
+    <!-- Required for Retina. Without it AppKit runs the app through the
+         low-resolution compatibility path and every photo is upscaled 2x
+         from a 1x backing store. -->
+    <key>NSHighResolutionCapable</key>      <true/>
+
+    <!-- Declared as Alternate rather than Owner so installing the app does not
+         silently seize every image on the machine from Preview. The user opts
+         in through Get Info, which is the honest way to acquire a default. -->
+    <!-- Shown in the consent dialog when the user turns on "Use Finder's Sort
+         Order". Say what it is for in the user's terms; this string is the
+         only explanation they get. -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Casa reads the sort order of your Finder window so it can show photos in the same order you see them.</string>
+
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>     <string>Image</string>
+            <key>CFBundleTypeRole</key>     <string>Viewer</string>
+            <key>LSHandlerRank</key>        <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.image</string>
+                <string>public.camera-raw-image</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

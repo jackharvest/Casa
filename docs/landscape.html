@@ -1,0 +1,565 @@
+<title>Picasa Viewer Gap on macOS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --ground:#EEF0F2;
+  --surface:#FFFFFF;
+  --surface-2:#F6F7F9;
+  --ink:#191C21;
+  --ink-2:#4A525C;
+  --ink-3:#727C88;
+  --rule:#D4D9DF;
+  --rule-strong:#B4BCC6;
+  --accent:#2F628C;
+  --accent-soft:#E2EAF2;
+  --good:#356B47;
+  --warn:#8A6410;
+  --bad:#9A3D3D;
+  --good-bg:#E3EEE6;
+  --warn-bg:#F3EBD6;
+  --bad-bg:#F2E3E3;
+  --shadow:0 1px 2px rgba(25,28,33,.06),0 8px 24px -12px rgba(25,28,33,.18);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#14171B;
+    --surface:#1B1F25;
+    --surface-2:#22272E;
+    --ink:#E6EAEF;
+    --ink-2:#A9B3BF;
+    --ink-3:#7C8794;
+    --rule:#2E353D;
+    --rule-strong:#414A55;
+    --accent:#7FB0D8;
+    --accent-soft:#22313F;
+    --good:#7FBF95;
+    --warn:#D6B563;
+    --bad:#DE8C8C;
+    --good-bg:#1D2A22;
+    --warn-bg:#2B2618;
+    --bad-bg:#2C1E1E;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#14171B;
+  --surface:#1B1F25;
+  --surface-2:#22272E;
+  --ink:#E6EAEF;
+  --ink-2:#A9B3BF;
+  --ink-3:#7C8794;
+  --rule:#2E353D;
+  --rule-strong:#414A55;
+  --accent:#7FB0D8;
+  --accent-soft:#22313F;
+  --good:#7FBF95;
+  --warn:#D6B563;
+  --bad:#DE8C8C;
+  --good-bg:#1D2A22;
+  --warn-bg:#2B2618;
+  --bad-bg:#2C1E1E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px 96px}
+.col{max-width:66ch}
+
+/* ---- masthead ---- */
+.masthead{border-bottom:1px solid var(--rule);padding:56px 0 30px;margin-bottom:44px}
+.kicker{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent);font-weight:500;margin:0 0 18px;
+}
+h1{
+  font-family:"Archivo",system-ui,sans-serif;
+  font-weight:700;font-size:clamp(34px,5.2vw,52px);line-height:1.04;
+  letter-spacing:-.022em;margin:0 0 20px;text-wrap:balance;max-width:17ch;
+}
+.standfirst{font-size:20px;line-height:1.5;color:var(--ink-2);margin:0;max-width:56ch}
+.meta{
+  display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;letter-spacing:.05em;color:var(--ink-3);text-transform:uppercase;
+}
+
+/* ---- sections ---- */
+section{margin-bottom:58px;scroll-margin-top:24px}
+h2{
+  font-family:"Archivo",system-ui,sans-serif;
+  font-weight:600;font-size:15px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--ink);margin:0 0 24px;padding-bottom:12px;
+  border-bottom:2px solid var(--rule-strong);display:block;
+}
+h3{
+  font-family:"Archivo",system-ui,sans-serif;
+  font-weight:600;font-size:19px;letter-spacing:-.01em;
+  margin:32px 0 10px;color:var(--ink);text-wrap:balance;
+}
+p{margin:0 0 16px}
+a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+strong{font-weight:600}
+code,kbd{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.85em}
+kbd{
+  background:var(--surface-2);border:1px solid var(--rule);border-bottom-width:2px;
+  border-radius:4px;padding:1px 5px;color:var(--ink-2);white-space:nowrap;
+}
+code{background:var(--surface-2);border-radius:3px;padding:1px 5px;color:var(--ink-2)}
+
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin-bottom:9px}
+li::marker{color:var(--ink-3)}
+
+/* ---- verdict callout ---- */
+.verdict{
+  background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--accent);
+  border-radius:3px;padding:26px 30px;box-shadow:var(--shadow);margin-bottom:8px;
+}
+.verdict p:last-child{margin-bottom:0}
+
+/* ---- trait list: numbered because it IS a ranked spec ---- */
+.traits{list-style:none;padding:0;margin:0;display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.traits li{margin:0;background:var(--surface);padding:16px 20px;display:grid;grid-template-columns:34px 1fr;gap:14px;align-items:start}
+.traits .n{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:600;
+  color:var(--accent);padding-top:4px;letter-spacing:.02em;
+}
+.traits .t{font-family:"Archivo",system-ui,sans-serif;font-weight:600;font-size:15.5px;display:block;margin-bottom:2px}
+.traits .d{font-size:15.5px;color:var(--ink-2);line-height:1.5}
+
+/* ---- table ---- */
+.scroll{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--surface);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;min-width:800px;font-size:14.5px}
+thead th{
+  font-family:"Archivo",system-ui,sans-serif;font-weight:600;font-size:11px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  text-align:left;padding:13px 14px;border-bottom:1px solid var(--rule-strong);
+  background:var(--surface-2);white-space:nowrap;vertical-align:bottom;
+}
+tbody td{padding:13px 14px;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:0}
+tbody th{
+  padding:13px 14px;border-bottom:1px solid var(--rule);text-align:left;
+  font-family:"Archivo",system-ui,sans-serif;font-weight:600;font-size:14.5px;
+  color:var(--ink);white-space:nowrap;
+}
+tbody tr:last-child th{border-bottom:0}
+td.num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.pill{
+  display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 8px;border-radius:3px;white-space:nowrap;
+}
+.p-good{background:var(--good-bg);color:var(--good)}
+.p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-bad{background:var(--bad-bg);color:var(--bad)}
+
+/* ---- matrix marks ---- */
+.mx td{text-align:center;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:15px}
+.mx thead th:not(:first-child){text-align:center}
+.yes{color:var(--good);font-weight:600}
+.part{color:var(--warn);font-weight:600}
+.no{color:var(--ink-3)}
+
+/* ---- gap panel ---- */
+.gap{
+  background:var(--accent-soft);border:1px solid var(--rule);border-radius:3px;
+  padding:26px 30px;margin:24px 0;
+}
+.gap h3{margin-top:0}
+.gap p:last-child,.gap ul:last-child{margin-bottom:0}
+
+/* ---- constraint cards ---- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:24px 0}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:20px 22px;box-shadow:var(--shadow)}
+.card h4{
+  font-family:"Archivo",system-ui,sans-serif;font-weight:600;font-size:15px;
+  margin:0 0 8px;color:var(--ink);letter-spacing:-.005em;
+}
+.card p{font-size:15px;line-height:1.5;color:var(--ink-2);margin:0}
+.card .tag{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10.5px;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  display:block;margin-bottom:9px;
+}
+
+/* ---- footnote ---- */
+.note{font-size:14.5px;color:var(--ink-3);line-height:1.55;margin-top:14px}
+hr{border:0;border-top:1px solid var(--rule);margin:40px 0}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  .wrap{padding:0 18px 64px}
+  .masthead{padding-top:36px}
+  .verdict,.gap{padding:20px 22px}
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="kicker">Competitive research · macOS image viewers</p>
+  <h1>The Picasa Viewer Gap on macOS</h1>
+  <p class="standfirst">Windows got three credible Picasa Photo Viewer successors. The Mac got one abandoned F# experiment with seven stars. Here is the full landscape, the exact gap, and what it would take to fill it.</p>
+  <div class="meta">
+    <span>18 Sep 2026 · updated</span>
+    <span>Target: macOS 26 Tahoe</span>
+    <span>Working name: PicasaPreview</span>
+  </div>
+</header>
+
+<section>
+  <h2>The short answer</h2>
+  <div class="col">
+    <div class="verdict">
+      <p><strong>Yes — exactly once, and it died.</strong> <a href="https://github.com/Thecentury/picasa">Thecentury/picasa</a> is literally titled "A Picasa-like image viewer for macOS." It is written in F# on Avalonia + FuncUI, has 86 commits, 7 stars, 0 forks, no releases, and a TODO list that still includes "write build instructions" and "create a redistributable package." It reached navigate / rotate / delete and stopped.</p>
+      <p>Nobody else has tried. Every other Mac viewer is either a <em>Preview replacement</em> (minimal, opens one file) or a <em>library manager</em> (digiKam, Lightroom, Peakto). The thing Picasa's viewer actually was — a zero-chrome overlay that appears instantly over whatever you were doing and lets you flick through a folder without thinking — has no Mac equivalent.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What "Picasa viewer" actually means</h2>
+  <div class="col">
+    <p>This matters because "Picasa" gets confused with the library app. The <em>viewer</em> was a separate binary that Google shipped alongside it, and the nostalgia is specifically for the viewer. Its defining traits, ranked by how much they contribute to the feeling:</p>
+  </div>
+  <ol class="traits">
+    <li><span class="n">01</span><span><span class="t">Sub-100ms cold start</span><span class="d">Double-click to photo-on-screen felt instantaneous, even on 100&nbsp;MB RAW. No splash, no window chrome animation, no spinner. This is the single trait everything else hangs off.</span></span></li>
+    <li><span class="n">02</span><span><span class="t">Borderless translucent overlay</span><span class="d">Full-screen, semi-transparent black ground, the photo floating on it, no title bar. It read as a lightbox over your desktop rather than an application window.</span></span></li>
+    <li><span class="n">03</span><span><span class="t">Arrow keys just work</span><span class="d">Left/right steps through the containing folder in the order the file manager showed it — with adjacent images already decoded, so holding the key scrubs instead of stuttering.</span></span></li>
+    <li><span class="n">04</span><span><span class="t">Scroll wheel zooms to the cursor</span><span class="d">Not zoom-to-center. The pixel under your pointer stays under your pointer. Pan by drag. This is the interaction people describe when they say a viewer "feels right."</span></span></li>
+    <li><span class="n">05</span><span><span class="t">Toggleable filmstrip</span><span class="d">A thumbnail rail at the bottom, hidden by default, scrubs the folder when hovered.</span></span></li>
+    <li><span class="n">06</span><span><span class="t">Escape / double-click dismisses</span><span class="d">It was disposable. You opened it, looked, and it was gone. It never asked you to manage a window.</span></span></li>
+    <li><span class="n">07</span><span><span class="t">Respects the file manager's sort</span><span class="d">If Explorer was sorted by date, the viewer stepped by date. If you'd filtered a search, it stepped only the filtered set.</span></span></li>
+  </ol>
+  <div class="col">
+    <p class="note">Traits 1, 2, 4 and 6 are what no Mac app currently combines. Traits 3, 5 and 7 exist in pieces.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Windows proved the demand</h2>
+  <div class="col">
+    <p>The Windows side of this niche is healthy, which is the useful signal: people care enough about a discontinued 2015 viewer that three separate projects target it by name.</p>
+    <p><a href="https://github.com/riyasy/FlyPhotos">FlyPhotos</a> is the one you already know, and it's the benchmark worth studying. Its README states the goal outright — "a modern replacement for the now-discontinued Google Picasa Photo Viewer." The engineering choices are all in service of trait 01:</p>
+    <ul>
+      <li><strong>Native AOT compilation</strong> — no JIT warm-up on launch, which is the entire reason it starts instantly.</li>
+      <li><strong>WinUI 3 + Win2D</strong> — Direct2D-backed rendering, so zoom and pan are GPU work, not CPU blits.</li>
+      <li><strong>Two-tier cache</strong> — in-memory for the current neighborhood, on-disk for previews, so returning to a folder is warm.</li>
+      <li><strong>"Fly-through mode"</strong> — hold an arrow key and it glides with no loading spinners, degrading to cached previews rather than blocking on full decodes.</li>
+      <li><strong>Explorer integration</strong> — inherits sort order and active filters, including Recent and Search results.</li>
+      <li>Format coverage via the OS codec layer (Windows Imaging Component) plus explicit PSD / HEIC / AVIF / SVG / animated WebP / DDS handling.</li>
+    </ul>
+    <p>The commercial model is worth noting too: free on GitHub, paid in the Microsoft Store for auto-updates and signing. The others in the space — <a href="https://github.com/d2phap/ImageGlass">ImageGlass</a> (which has an <a href="https://github.com/d2phap/ImageGlass/issues/1009">open feature request to imitate Picasa's gestures specifically</a>) and <a href="https://github.com/hiz8/spica-photo-viewer">spica</a> — confirm the pattern.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What actually exists on macOS</h2>
+  <div class="col">
+    <p>I looked at everything with a pulse. The honest summary is that the Mac field is crowded with <em>adequate</em> and empty of <em>Picasa</em>.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>App</th><th>Stack</th><th>Status</th><th>Why it isn't the thing</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th><a href="https://github.com/Thecentury/picasa">Thecentury/picasa</a></th>
+          <td class="num">F# · Avalonia</td>
+          <td><span class="pill p-bad">Abandoned</span><br><span class="note">7★ · no release</span></td>
+          <td>The only explicit attempt. Never packaged, no build docs, non-native toolkit means it can't hit the startup or feel targets anyway.</td>
+        </tr>
+        <tr>
+          <th><a href="https://github.com/jdpurcell/SimpView">SimpView</a></th>
+          <td class="num">Swift · native</td>
+          <td><span class="pill p-good">Active</span><br><span class="note">4★ · MIT</span></td>
+          <td>Closest technically — arrow nav, optional adjacent preloading, <kbd>⌥→</kbd> jumps 50. But deliberately anti-Picasa: README says no toolbars, <em>no thumbnail browser</em>, no animation. Apple silicon + macOS 15 only.</td>
+        </tr>
+        <tr>
+          <th><a href="https://github.com/wflixu/iMonet">iMonet</a></th>
+          <td class="num">SwiftUI + AppKit</td>
+          <td><span class="pill p-warn">Quiet</span><br><span class="note">27★ · GPL-3</span></td>
+          <td>Has zoom-to-cursor (trait 04) and security-scoped folder bookmarks. But only 5 formats — no RAW, no HEIC — and it's a conventional windowed app, not an overlay.</td>
+        </tr>
+        <tr>
+          <th><a href="https://github.com/lambdan/imageviewer5">imageviewer5</a></th>
+          <td class="num">SwiftUI</td>
+          <td><span class="pill p-warn">Quiet</span><br><span class="note">44★ · MIT</span></td>
+          <td>Built to clone IrfanView's arrow-key browsing, and stops there. Author calls it a Swift learning project. No GIF support.</td>
+        </tr>
+        <tr>
+          <th><a href="https://github.com/xd43vild69/xviewerSwift">xviewerSwift</a></th>
+          <td class="num">SwiftUI</td>
+          <td><span class="pill p-warn">Unproven</span><br><span class="note">0★ · no license</span></td>
+          <td>145 commits, surprisingly deep (dual-pane, RAW pairing, SMB EXIF thumbnails). But it's a <em>culling tool</em> for photographers, not a casual viewer — and zero stars, no release, no license.</td>
+        </tr>
+        <tr>
+          <th><a href="https://github.com/kyleerhabor/advance">Advance</a></th>
+          <td class="num">SwiftUI</td>
+          <td><span class="pill p-warn">Unproven</span><br><span class="note">5★ · GPL-3</span></td>
+          <td>Built for the same reason as us — its README says Preview "can feel cumbersome when all you need is to view images." Scrollable canvas, bookmarks, Live Text. But it's a continuous-scroll browser, not an overlay, and needs Xcode 26 to build.</td>
+        </tr>
+        <tr>
+          <th>Pixea</th>
+          <td class="num">Closed source</td>
+          <td><span class="pill p-good">Active</span><br><span class="note">Free + IAP</span></td>
+          <td>The strongest mainstream option. Broad formats, tabs, batch editing. But it's a document-window app with chrome — it never disappears the way Picasa did.</td>
+        </tr>
+        <tr>
+          <th>ApolloOne</th>
+          <td class="num">Core Image</td>
+          <td><span class="pill p-good">Active</span><br><span class="note">Paid</span></td>
+          <td>Has a real filmstrip and good RAW. Aimed at pro culling; heavier and more modal than "glance at a photo."</td>
+        </tr>
+        <tr>
+          <th>Xee³</th>
+          <td class="num">Objective-C</td>
+          <td><span class="pill p-bad">Abandoned</span><br><span class="note">Still sold</span></td>
+          <td>No meaningful update since ~2021, never made Universal, no proper dark mode — still charged for. The cautionary tale of this category.</td>
+        </tr>
+        <tr>
+          <th>qView / nomacs / XnViewMP</th>
+          <td class="num">Qt</td>
+          <td><span class="pill p-good">Active</span><br><span class="note">Cross-platform</span></td>
+          <td>Capable and fast-ish, but visibly non-native on macOS. Qt chrome, Qt file dialogs, Qt fonts. Fails trait 02 by construction.</td>
+        </tr>
+        <tr>
+          <th>Preview.app</th>
+          <td class="num">Apple</td>
+          <td><span class="pill p-bad">The problem</span></td>
+          <td>Doesn't pre-cache adjacent images at all, so every arrow press is a cold decode — and it won't step outside the files you explicitly opened.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p class="note">Status and star counts read from the repos on 18 Sep 2026. Claims about the closed-source commercial apps (Pixea, ApolloOne) come from vendor pages and review roundups and are lower-confidence — worth ten minutes of hands-on before you treat them as competitors.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The gap, stated precisely</h2>
+  <div class="scroll">
+    <table class="mx">
+      <thead>
+        <tr>
+          <th>Trait</th>
+          <th>SimpView</th><th>iMonet</th><th>Pixea</th><th>ApolloOne</th><th>qView</th><th>Preview</th><th style="color:var(--accent)">Ours</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th>01 Instant cold start</th><td class="part">~</td><td class="part">~</td><td class="part">~</td><td class="no">·</td><td class="yes">✓</td><td class="no">·</td><td class="part" style="background:var(--accent-soft)">~</td></tr>
+        <tr><th>02 Chromeless overlay</th><td class="part">~</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+        <tr><th>03 Preloaded arrow nav</th><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">·</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+        <tr><th>04 Zoom to cursor</th><td class="part">~</td><td class="yes">✓</td><td class="part">~</td><td class="part">~</td><td class="part">~</td><td class="no">·</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+        <tr><th>05 Filmstrip</th><td class="no">·</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">·</td><td class="part">~</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+        <tr><th>06 Disposable dismiss</th><td class="part">~</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="part">~</td><td class="no">·</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+        <tr><th>07 Follows Finder sort</th><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes" style="background:var(--accent-soft)">✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="gap col">
+    <h3>Nobody on macOS ships 02 + 06 + 07 together</h3>
+    <p>The overlay feel, the disposability, and Finder-order fidelity. Those three are the whole product. Everything in column 03 is table stakes that six apps already have — building another arrow-key viewer adds nothing.</p>
+    <p><strong>Trait 07 is completely unclaimed on macOS.</strong> Not one app does it. It's also the least obvious and the most differentiating: if you've sorted a folder by date-added and hit an image, stepping alphabetically is quietly wrong every time, and nobody has fixed it.</p>
+  </div>
+</section>
+
+<section>
+  <h2>macOS constraints you have to design around</h2>
+  <div class="col">
+    <p>Four platform realities shape the product more than any feature choice. Two of them are why the Windows approach can't be copied directly.</p>
+  </div>
+  <div class="cards">
+    <div class="card">
+      <span class="tag">Blocker</span>
+      <h4>You cannot own the spacebar</h4>
+      <p>macOS has no supported way to replace Finder's Quick Look handler. <kbd>Space</kbd> will always be Apple's. Your entry points are double-click (register as default app for the image UTIs) and a global hotkey you claim yourself.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Spike needed</span>
+      <h4>Finder sort order is reachable, awkwardly</h4>
+      <p>Finder's AppleScript dictionary exposes the front window's selection and sort column. That's the path to trait 07 — but it needs an Automation permission prompt, and its reliability across view modes and macOS 26 is unverified. Prototype this before committing to it.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Design input</span>
+      <h4>Sandbox vs. folder walking</h4>
+      <p>Opening one file grants you that file, not its folder. To enumerate siblings you need security-scoped bookmarks for the parent directory — iMonet already does this. Or ship unsandboxed outside the App Store, which also frees the global hotkey.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Advantage</span>
+      <h4>ImageIO is genuinely fast</h4>
+      <p><code>CGImageSourceCreateThumbnailAtIndex</code> pulls embedded previews without decoding the full RAW — the same trick FlyPhotos uses, but built into the OS. Format coverage (HEIC, RAW, AVIF) comes free. This is your trait-01 lever.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What I'd build</h2>
+  <div class="col">
+    <p><strong>Swift + AppKit, not SwiftUI.</strong> A borderless <code>NSWindow</code> at screen level with a translucent backing is an AppKit primitive; SwiftUI fights you on window chrome and adds launch cost. Use SwiftUI only for the settings panel, if at all.</p>
+    <p><strong>Render in Metal via <code>CAMetalLayer</code> or <code>MTKView</code>.</strong> Zoom-to-cursor is a texture transform, not a re-decode. This is what makes trait 04 feel right instead of laggy, and it's how you keep a 100&nbsp;MP file smooth.</p>
+    <p><strong>Three-tier load, mirroring FlyPhotos.</strong> On open: show the embedded EXIF thumbnail immediately (single-digit milliseconds), then a screen-resolution downsample, then the full decode only if the user zooms past fit. Preload N±2 on a background queue.</p>
+    <p><strong>Attack trait 01 relentlessly.</strong> Your enemy is process launch, not decode. Keep the binary small, defer every framework you can, avoid dynamic-library loading at startup, and consider a resident helper process so the second launch is warm. Measure double-click-to-pixels, and treat 100ms as the bar.</p>
+    <p><strong>Ship trait 07 as the wedge.</strong> Everything else on this list exists somewhere on the Mac. Finder-order fidelity doesn't, and it's the thing that makes the app feel like it belongs to the OS rather than sitting on top of it.</p>
+    <p><strong>Skip for v1:</strong> editing, tagging, a library, face detection, cloud anything. Picasa-the-library is a different product and it's what killed every previous attempt at Picasa-the-viewer.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Build log · what measurement changed</h2>
+  <div class="col">
+    <p>The scaffolding is up and running against 36&nbsp;MP test images. Seven findings came out of instrumenting it, and every one contradicted something reasonable-sounding. They are recorded in full in <code>docs/performance-log.md</code>; these are the ones that changed the architecture.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>What was assumed</th><th>What measurement showed</th><th>Effect</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Thumbnail API is cheap</th>
+          <td>Without an explicit size cap it returns the image at <em>native</em> size. The "avoid decoding" call was decoding a 9000² JPEG in full.</td>
+          <td class="num">1.05&nbsp;GB → 307&nbsp;MB</td>
+        </tr>
+        <tr>
+          <th>Max pixel size makes the decode cheaper</th>
+          <td>It bounds the <em>output</em>, not the decode — the full 145&nbsp;MB bitmap is still materialized, then resampled. True in JPEG as well as HEIC. <code>kCGImageSourceSubsampleFactor</code> is the flag that actually reduces the decode.</td>
+          <td class="num">JPEG 325 → 121&nbsp;ms</td>
+        </tr>
+        <tr>
+          <th>Full-size decode is honest work</th>
+          <td><code>CGImageSourceCreateImageAtIndex</code> returned a 36&nbsp;MP image in 1.3&nbsp;ms because it is lazy. The decode reappears on the render thread. It also silently skips EXIF orientation.</td>
+          <td>Removed a hitch and a rotation bug</td>
+        </tr>
+        <tr>
+          <th>Background preloading is free</th>
+          <td>Neighbor decodes at low priority still compete for cores, stretching the image the user is waiting for from ~140&nbsp;ms to ~390&nbsp;ms.</td>
+          <td class="num">2.8× on the foreground</td>
+        </tr>
+        <tr>
+          <th>A byte-ceiling cache bounds memory</th>
+          <td>It drifted to 310&nbsp;MB over a dozen navigations. Core Animation's GPU-side copies are invisible to byte accounting.</td>
+          <td>Rewritten to bound by shape</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="gap col">
+    <h3>Where it stands</h3>
+    <p>Six of the seven traits are in, including the unclaimed one. Navigation — the interaction that actually dominates use — is <strong>1&nbsp;ms to first pixels, median over 40 steps</strong>, landing well inside a single frame. The image sharpens to full screen resolution ~190&nbsp;ms later.</p>
+    <p><strong>Trait 07 works.</strong> Finder exposes its sort order for list and icon views; column and gallery views expose nothing, and fall back to name order — which is also Finder's own default there. Two of four view modes, degrading sensibly, and more than any Mac viewer does today.</p>
+    <p>Cold launch is ~465&nbsp;ms and remains the one number short of target. Memory regressed from ~120&nbsp;MB to ~230&nbsp;MB when the rail landed and is the open item.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Round two · seven more contradictions</h2>
+  <div class="col">
+    <p>Building the rail, trait 07 and the chrome produced another seven findings, and the pattern held: every one contradicted something that sounded obviously true. Two are worth repeating outside this project.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>What was assumed</th><th>What measurement showed</th></tr></thead>
+      <tbody>
+        <tr><th>Background priority is enough</th><td>A dozen thumbnail decodes issued at once took <strong>3.2&nbsp;s each</strong> instead of 150&nbsp;ms, and dragged the image the user was waiting for to 3259&nbsp;ms. Priority decides who wins a scheduling contest; it does not reduce the number of contestants.</td></tr>
+        <tr><th>A view's layer is a view's layer</th><td>Setting <code>wantsLayer</code> <em>before</em> assigning <code>layer</code> makes the view layer-<em>backed</em>: AppKit owns it and discards what you set. The backdrop had a correct frame and a correct colour and never drew. Fixed by deleting the view — a non-opaque window with a translucent background colour is the same effect in one line.</td></tr>
+        <tr><th>Cells can be keyed by index</th><td>Adopting Finder's order re-lists the folder underneath the rail, moving an image from slot 4 to slot 7 — so its thumbnail landed on the wrong cell and the current image was the one blank square. Anything cached against a position in a re-orderable list has this bug.</td></tr>
+        <tr><th>A file has one URL</th><td>Finder hands over <code>/tmp/photo.jpg</code>; the folder scanner re-lists it as <code>/private/tmp/photo.jpg</code>. Both open fine, and every URL-keyed cache downstream then holds two keys for one photograph.</td></tr>
+        <tr><th>Testing permissions from a terminal is testing permissions</th><td>TCC attributes Automation consent to the <em>responsible process</em>. Launched from a shell the app inherits the terminal's existing right to control Finder and reports <code>granted</code>; launched with <code>open&nbsp;-a</code> the same binary correctly reports <code>notDetermined</code>. Ad-hoc signatures also change every build, so grants do not survive one.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Round three · formats, playback, three monitors</h2>
+  <div class="col">
+    <p>Format coverage is now a measurement rather than a claim. <code>--selftest</code> walks every file in a folder through the real decode ladder and reports pixels, frames, rung and timing, exiting non-zero on a regression. Current result on a 37-file corpus: <strong>33/33 displayable · 2 animated · 2 video · 4/4 malformed rejected safely</strong>.</p>
+    <h3>Against FlyPhotos, the benchmark</h3>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Capability</th><th>FlyPhotos</th><th style="color:var(--accent)">Ours</th></tr></thead>
+      <tbody>
+        <tr><th>Decoder base</th><td>Windows Imaging Component</td><td>ImageIO — 62 types, 70 extensions</td></tr>
+        <tr><th>Camera RAW</th><td>"camera RAW"</td><td>~30 explicit (CR2/CR3, NEF, ARW, RAF, ORF, RW2, PEF, DNG, IIQ, 3FR…)</td></tr>
+        <tr><th>PSD · HEIC · AVIF · SVG · GIF · APNG · animated WebP</th><td>yes</td><td>yes</td></tr>
+        <tr><th>PDF</th><td>no</td><td><strong>yes</strong> — re-rendered on zoom, so it stays crisp at 32×</td></tr>
+        <tr><th>JPEG XL · JPEG 2000 · EXR · Radiance HDR · DICOM · PICT · MPO</th><td>no</td><td><strong>yes</strong></td></tr>
+        <tr><th>Video</th><td>no</td><td><strong>yes</strong> — poster-framed into the same ladder</td></tr>
+        <tr><th>Malformed input</th><td>—</td><td>4/4 rejected without incident; <code>qlmanage</code> abort-traps on one of them</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <h3>Three more findings</h3>
+    <ul>
+      <li><strong>An undecodable file left the previous photograph on screen.</strong> Navigating onto junk painted nothing, so the old image stayed up under the new filename — which looks exactly like a file that opened fine. Found because the benchmark hung on it, not by looking.</li>
+      <li><strong>Moving between displays of different density silently halves resolution.</strong> Nothing in the cache can detect it: the tier is unchanged and the bitmap is still valid <em>for that tier</em>. Dragging from the 1× 4K panel to the 2× built-in left the photo at 2294&nbsp;px where it needed 2713&nbsp;px, for as long as it stayed there.</li>
+      <li><strong>The round-two memory regression did not survive scrutiny.</strong> Re-measured across three displays it is 111–136&nbsp;MB, not 230&nbsp;MB. The earlier figure was taken immediately after a synthetic hammer with decodes still unwinding.</li>
+    </ul>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Display</th><th>Decode size</th><th>Steady</th><th>Peak</th></tr></thead>
+      <tbody>
+        <tr><th>3840 × 2160 @ 1×</th><td class="num">2294²</td><td class="num">122 MB</td><td class="num">276 MB</td></tr>
+        <tr><th>2056 × 1329 @ 2×</th><td class="num">2713²</td><td class="num">136 MB</td><td class="num">299 MB</td></tr>
+        <tr><th>1200 × 1920 @ 1× portrait</th><td class="num">1440²</td><td class="num">111 MB</td><td class="num">157 MB</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="gap col">
+    <h3>Where it stands</h3>
+    <p>Navigation is <strong>3.7&nbsp;ms to first pixels</strong> on a mixed folder and <strong>under 2&nbsp;ms</strong> on 36&nbsp;MP HEICs. The Retina panel is physically the smallest of the three displays and costs the most memory, which is correct — it has the most pixels. The portrait panel costs least, because the aspect-aware budget notices a square photo in a tall window is bounded by its width.</p>
+    <p>Cold launch, ~465&nbsp;ms, remains the one number short of target.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Wishlist, from other people's issue trackers</h2>
+  <div class="col">
+    <p>Reddit blocks automated reading, so the better source turned out to be the issue trackers of the Windows viewers — those <em>are</em> wishlists, with reaction counts attached. What FlyPhotos users asked for, and what it shipped in response, is the closest thing to a validated feature ranking this niche has.</p>
+    <p>Two patterns stand out. The first is that almost every <em>completed</em> request is about chrome getting out of the way — fading controls, hiding the pointer along with them, click-a-thumbnail-to-jump. That is trait 02 being requested over and over in different words, which is reassuring for the wedge.</p>
+    <p>The second is that the loudest <em>open</em> requests are about formats and fidelity rather than interaction — HDR support is the top one. Worth noting for later: macOS has EDR, and a viewer that displays HDR photographs correctly on a Pro Display or a MacBook Pro panel would be a real differentiator that no Mac viewer currently claims.</p>
+    <ul>
+      <li><strong>Add to the trait list:</strong> pointer auto-hides with the chrome — currently the chrome fades and the cursor stays, which breaks the effect.</li>
+      <li><strong>Add to the trait list:</strong> a delete shortcut that moves to Trash and advances, with undo. Repeatedly requested, and it is what turns a viewer into a culling tool.</li>
+      <li><strong>Candidate, post-v1:</strong> HDR/EDR display. Top open request on FlyPhotos; unclaimed on macOS. All three attached displays report <code>maxEDR&nbsp;=&nbsp;1.0</code>, so this needs hardware that can actually show it before it can be built honestly.</li>
+      <li><strong>Done since:</strong> pointer auto-hide is still open; delete-to-Trash still open; copy image / copy path still open.</li>
+      <li><strong>Candidate, post-v1:</strong> copy image, and copy path, from the viewer.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Loose ends</h2>
+  <div class="col">
+    <ul>
+      <li><strong>Attribute the 219&nbsp;ms pre-launch gap.</strong> 56&nbsp;ms is AppKit initialization; the remaining ~120&nbsp;ms between will-finish-launching and the open-file event is unexplained. It is the whole obstacle to a sub-100&nbsp;ms cold launch.</li>
+      <li><strong>Try Pixea and SimpView for an hour each.</strong> My read on the commercial apps came from vendor copy and SEO roundups, not hands-on. SimpView especially may be closer than I've credited.</li>
+      <li><strong>Decide App Store vs. direct</strong> early — it determines sandbox, global hotkey, and whether unsandboxed folder access is on the table. Direct distribution with Sparkle is the freer path; FlyPhotos does both and charges for the store build.</li>
+      <li><strong>Naming.</strong> "PicasaPreview" can't ship — Picasa is Google's mark. Directions worth exploring: something from the lightbox/loupe vocabulary, or from the disposability idea (it appears, you look, it's gone).</li>
+    </ul>
+  </div>
+</section>
+
+</div>

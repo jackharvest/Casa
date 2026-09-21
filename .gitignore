@@ -1,0 +1,13 @@
+# SwiftPM
+.build/
+
+# Build output, generated test corpus, compiled corpus tools
+build/
+
+# macOS
+.DS_Store
+
+# Signing material — never commit private keys
+*.p12
+*.pem
+private/
