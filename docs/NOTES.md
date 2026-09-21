@@ -3,7 +3,10 @@
 Written to make picking this up again cheap. Everything here is either
 non-obvious, hard-won, or would cost an hour to rediscover.
 
-Last worked on: **18 September 2026**.
+Last worked on: **21 September 2026**.
+
+Repo: <https://github.com/jackharvest/Casa> · Released through GitHub Releases,
+signed, and installed in place by the app itself.
 
 ---
 
@@ -81,6 +84,75 @@ machine** — there is no display that can show the result.
 
 ---
 
+## 2b. Release and update pipeline
+
+**Versioning.** `VERSION` at the repo root is the single source of truth.
+`Scripts/build-app.sh` stamps it into `Info.plist` as
+`CFBundleShortVersionString`, and `CFBundleVersion` becomes the git commit count
+— monotonic, reproducible from any checkout, no state of its own.
+
+**Signing.** `Scripts/keygen.sh` was run once. The Ed25519 public key is
+compiled into `Update/UpdateSecurity.swift`; the private key lives at
+`private/casa-update.key` (mode 600, gitignored).
+
+> **The private key must be backed up.** If it is lost, every installed copy of
+> Casa will correctly reject all future updates, and users will have to
+> reinstall by hand. Rotating it has the same effect.
+
+**Cutting a release.**
+
+```sh
+echo 0.4.0 > VERSION
+git commit -am "…"            # release.sh refuses a dirty tree
+Scripts/release.sh --dry-run  # build, package, sign — publishes nothing
+Scripts/release.sh            # tags, pushes, creates the GitHub release
+```
+
+Three assets are published per release: `Casa-x.y.z.zip`, `.zip.sha256`, and
+`.zip.sig`. The app finds the archive by extension rather than exact name, so
+the naming scheme can change without stranding installed copies.
+
+**How the update actually lands.** Verified end to end on 21 Sep (0.1.0 → 0.2.0
+in a writable location, log evidence in the commit history):
+
+1. Daily throttled check against `/repos/<repo>/releases`, silent unless it has
+   something to offer
+2. Download, streamed to `~/Library/Caches/<bundle-id>/Updates` with progress
+3. SHA-256 digest compared, **and** Ed25519 signature verified against the
+   compiled-in public key
+4. `ditto -x -k` into an `.itemReplacementDirectory` on the same volume —
+   `ditto`, not `unzip`, because `unzip` strips the code signature
+5. Validated: bundle identifier matches, version is strictly newer, code
+   signature intact
+6. `FileManager.replaceItemAt` — atomic, same volume
+7. A detached `/bin/sh` polls until this PID exits, then reopens the app *with
+   the photograph that was on screen*
+
+Everything that can fail does so before step 6, so a failed update leaves the
+running app untouched.
+
+**Known limitation.** `UpdateInstaller.canInstallInPlace` refuses when the
+bundle or its parent is not writable, which is checked *before* offering the
+update rather than after a download. A privileged install (`/Applications`
+owned by root) would need `SMJobBless` or an admin prompt and is not built.
+
+## 2c. Regenerating README media
+
+```sh
+swiftc -O Scripts/MediaTools/WindowList.swift -o build/media-tools/WindowList
+swiftc -O Scripts/MediaTools/MakeGif.swift    -o build/media-tools/MakeGif
+
+build/media-tools/WindowList Casa      # -> "<id> <x> <y> <w> <h> <name> | <title>"
+screencapture -x -o -l <id> out.png    # captures exactly that window
+build/media-tools/MakeGif out.gif 0.32 820 frames/*.png
+```
+
+`WindowList` exists because guessing crop offsets wasted several rounds —
+`screencapture -l <windowid>` targets a window exactly and includes its shadow.
+For the navigation GIF, launch with `--keep-chrome --bench 60` and capture in a
+loop; the benchmark advances roughly every 180 ms, so consecutive captures are
+genuinely different photographs.
+
 ## 3. Commands
 
 ```sh
@@ -131,6 +203,14 @@ Sources/Casa/
     FolderScanner    sibling enumeration and ordering
     FinderSort       trait 07 — reads Finder's sort order
     Session          navigation state machine
+  Update/    the updater, top to bottom
+    SemanticVersion  proper version comparison
+    UpdateSecurity   SHA-256 + Ed25519; fails closed
+    UpdateRelease    GitHub release JSON, decoded loosely on purpose
+    UpdateChecker    the daily query
+    UpdateDownloader streamed, with progress
+    UpdateInstaller  stage, validate, atomic swap, relaunch
+    UpdateController one state at a time
     SupportedTypes   what we can open, asked of ImageIO at runtime
     FormatSelfTest   the coverage harness
   UI/        ViewerWindow, ImageCanvasView, ChromeView, FilmstripView, IconButton
@@ -265,8 +345,10 @@ point or ⌘Q silently does nothing for the first window.
 
 ## 7. Open items, in priority order
 
-1. **Create a stable signing identity.** Unblocks everything TCC-related and
-   removes a per-rebuild consent dialog. Ten minutes.
+1. **Create a stable *codesigning* identity.** Separate from the update signing
+   key, which is done. Ad-hoc signatures change every build, so TCC grants do
+   not survive one — unblocks Finder-sort testing and removes a per-rebuild
+   consent dialog. Ten minutes; see §6.
 
 2. **Attribute the ~120 ms gap** between `applicationWillFinishLaunching` and
    the open-file event arriving. This is the bulk of what stands between ~465 ms
@@ -290,15 +372,20 @@ point or ⌘Q silently does nothing for the first window.
    - HDR/EDR display — their top *open* request, unclaimed on macOS. **Needs
      hardware this machine does not have.**
 
-5. **Multi-page PDF navigation.** Page 1 renders; pages 2+ are unreachable.
+5. **Notarization.** The app is ad-hoc signed, so a first launch on someone
+   else's Mac hits Gatekeeper and needs a right-click → Open. Proper
+   distribution needs a Developer ID and notarization — worth doing before
+   telling anyone about this.
+
+6. **Multi-page PDF navigation.** Page 1 renders; pages 2+ are unreachable.
    Needs a decision about how page navigation coexists with file navigation.
 
-6. **Finder sort coverage.** List and icon views expose their sort order; column
+7. **Finder sort coverage.** List and icon views expose their sort order; column
    and gallery (`flow view`) expose nothing and fall back to name order, which
    is also Finder's own default there. Two of four, degrading sensibly. There is
    no further API — this is a ceiling, not a to-do.
 
-7. **App Store vs. direct distribution** is still undecided, and it determines
+8. **App Store vs. direct distribution** is still undecided, and it determines
    sandboxing, whether a global hotkey is possible, and whether unsandboxed
    folder access is on the table. Direct with Sparkle is the freer path;
    FlyPhotos does both and charges for the store build.
