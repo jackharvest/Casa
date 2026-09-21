@@ -258,6 +258,49 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         return true
     }
 
+    // MARK: - Clipboard
+
+    /// Copies the photograph itself, plus its file URL.
+    ///
+    /// Both representations go on the pasteboard together, because different
+    /// destinations want different things: a chat window wants the bitmap, a
+    /// Finder window or a terminal wants the file. Offering both means the
+    /// paste does the obvious thing wherever it lands.
+    @objc func copyImage(_ sender: Any?) {
+        guard let url = session.currentURL else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+
+        var items: [NSPasteboardWriting] = [url as NSURL]
+        if let image = NSImage(contentsOf: url) {
+            items.insert(image, at: 0)
+        }
+        pasteboard.writeObjects(items)
+        chrome.update(filename: url.lastPathComponent,
+                      position: session.positionDescription,
+                      note: "Copied")
+        chrome.flash()
+    }
+
+    /// Copies the POSIX path as text — what you want when the destination is a
+    /// terminal or a text field rather than an image view.
+    @objc func copyPath(_ sender: Any?) {
+        guard let url = session.currentURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.path, forType: .string)
+        chrome.update(filename: url.lastPathComponent,
+                      position: session.positionDescription,
+                      note: "Path copied")
+        chrome.flash()
+    }
+
+    /// Reveals the photograph in Finder, which is the other thing people reach
+    /// for constantly and every viewer should have.
+    @objc func revealInFinder(_ sender: Any?) {
+        guard let url = session.currentURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {

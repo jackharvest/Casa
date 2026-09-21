@@ -17,6 +17,10 @@ enum MenuBuilder {
         appItem.submenu = appMenu()
         mainMenu.addItem(appItem)
 
+        let editItem = NSMenuItem()
+        editItem.submenu = editMenu()
+        mainMenu.addItem(editItem)
+
         let viewItem = NSMenuItem()
         viewItem.submenu = viewMenu()
         mainMenu.addItem(viewItem)
@@ -36,6 +40,15 @@ enum MenuBuilder {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         menu.addItem(withTitle: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        return menu
+    }
+
+    private static func editMenu() -> NSMenu {
+        let menu = NSMenu(title: "Edit")
+        add(to: menu, "Copy Image", #selector(ViewerController.copyImage(_:)), "c", [.command])
+        add(to: menu, "Copy Path", #selector(ViewerController.copyPath(_:)), "c", [.command, .option])
+        menu.addItem(.separator())
+        add(to: menu, "Reveal in Finder", #selector(ViewerController.revealInFinder(_:)), "r", [.command])
         return menu
     }
 

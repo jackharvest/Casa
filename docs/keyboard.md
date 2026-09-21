@@ -36,6 +36,14 @@ mapped to the same gesture — `NSEvent.hasPreciseScrollingDeltas` tells them
 apart. Two-finger scroll means pan everywhere else on macOS; a wheel means zoom
 to anyone who used Picasa.
 
+## Clipboard and Finder
+
+| Key | Action |
+|---|---|
+| `⌘C` | Copy the image *and* its file URL — paste does the obvious thing either way |
+| `⌥⌘C` | Copy the POSIX path as text |
+| `⌘R` | Reveal in Finder |
+
 ## Window
 
 | Key | Action |

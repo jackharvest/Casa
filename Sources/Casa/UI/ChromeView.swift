@@ -206,6 +206,12 @@ final class ChromeView: NSView {
         guard visible != isChromeVisible else { return }
         isChromeVisible = visible
 
+        // The pointer goes with the chrome. Fading the controls while leaving
+        // an arrow sitting on the photograph half-defeats the effect — and
+        // `setHiddenUntilMouseMoves` pairs exactly with the flash-on-move that
+        // brings the chrome back, so the two can never disagree.
+        NSCursor.setHiddenUntilMouseMoves(!visible)
+
         let duration = Accommodations.current.duration(0.22)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
