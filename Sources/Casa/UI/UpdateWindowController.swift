@@ -123,12 +123,28 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         header.alignment = .centerY
         header.spacing = Metrics.spacing(3)
 
-        // Release notes
+        // Release notes.
+        //
+        // An `NSTextView` created without a frame gets a zero-size text
+        // container and never lays anything out — the panel showed a blank
+        // white rectangle where the notes should be. The explicit frame,
+        // container size and `widthTracksTextView` below are the minimum that
+        // makes a text view inside a scroll view actually render.
+        let notesWidth = width - Metrics.spacing(10)
+        notesView.frame = NSRect(x: 0, y: 0, width: notesWidth, height: 240)
+        notesView.minSize = .zero
+        notesView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                   height: CGFloat.greatestFiniteMagnitude)
+        notesView.isVerticallyResizable = true
+        notesView.isHorizontallyResizable = false
+        notesView.autoresizingMask = [.width]
+        notesView.textContainer?.containerSize = NSSize(width: notesWidth,
+                                                        height: CGFloat.greatestFiniteMagnitude)
+        notesView.textContainer?.widthTracksTextView = true
         notesView.isEditable = false
         notesView.isSelectable = true
         notesView.drawsBackground = false
-        notesView.textContainerInset = NSSize(width: Metrics.spacing(1), height: Metrics.spacing(1))
-        notesView.isVerticallyResizable = true
+        notesView.textContainerInset = NSSize(width: Metrics.spacing(2), height: Metrics.spacing(2))
         notesView.linkTextAttributes = [
             .foregroundColor: NSColor.controlAccentColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -136,14 +152,19 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
 
         notesScroll.documentView = notesView
         notesScroll.hasVerticalScroller = true
-        notesScroll.drawsBackground = true
-        notesScroll.backgroundColor = .clear
+        notesScroll.autohidesScrollers = true
+        // Both of these must be off. Leaving either on paints an opaque slab
+        // over the panel's material.
+        notesScroll.drawsBackground = false
+        notesScroll.contentView.drawsBackground = false
         notesScroll.borderType = .noBorder
         notesScroll.translatesAutoresizingMaskIntoConstraints = false
         notesScroll.wantsLayer = true
         notesScroll.layer?.cornerRadius = Metrics.cornerRadius(.control)
         notesScroll.layer?.cornerCurve = .continuous
-        notesScroll.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.35).cgColor
+        // A whisper of a well, so the notes read as inset without becoming a
+        // second competing surface.
+        notesScroll.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
 
         // Progress
         progressBar.style = .bar
