@@ -39,6 +39,9 @@ enum Preferences {
         static let followsFinderSort = "followsFinderSort"
         static let hidesDock = "hidesDock"
         static let playback = "playbackPolicy"
+        static let automaticUpdateChecks = "automaticUpdateChecks"
+        static let lastUpdateCheck = "lastUpdateCheck"
+        static let skippedVersion = "skippedUpdateVersion"
     }
 
     /// Whether to inherit the sort order of the Finder window a photo was
@@ -67,6 +70,28 @@ enum Preferences {
                 .flatMap(PlaybackPolicy.init(rawValue:)) ?? .manual
         }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: Key.playback) }
+    }
+
+    /// Look for updates in the background. On by default, which is the
+    /// platform norm and the only honest default for an app that ships its own
+    /// updater — a security fix nobody finds isn't a fix.
+    static var automaticUpdateChecks: Bool {
+        get {
+            UserDefaults.standard.object(forKey: Key.automaticUpdateChecks) as? Bool ?? true
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Key.automaticUpdateChecks) }
+    }
+
+    static var lastUpdateCheck: Date? {
+        get { UserDefaults.standard.object(forKey: Key.lastUpdateCheck) as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: Key.lastUpdateCheck) }
+    }
+
+    /// A version the user asked not to be told about again. Explicitly *not*
+    /// "don't check any more" — the next release after it is still offered.
+    static var skippedVersion: String? {
+        get { UserDefaults.standard.string(forKey: Key.skippedVersion) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.skippedVersion) }
     }
 
     static var hidesDock: Bool {

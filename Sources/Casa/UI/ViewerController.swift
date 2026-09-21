@@ -83,6 +83,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
     // MARK: - Public entry
 
+    /// The photograph currently on screen, for the updater's relaunch.
+    var currentFile: URL? { session?.currentURL }
+
     func open(_ url: URL) {
         session.open(url)
         refreshChrome(for: session)

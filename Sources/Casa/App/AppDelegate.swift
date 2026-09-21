@@ -1,11 +1,22 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleAutomaticUpdates(_:)) {
+            menuItem.state = Preferences.automaticUpdateChecks ? .on : .off
+        }
+        return true
+    }
+
 
     private var window: ViewerWindow?
     private var controller: ViewerController?
     private let windowDelegate = ViewerWindowDelegate()
+
+    let updates = UpdateController()
+    private lazy var updatePanel = UpdateWindowController(controller: updates)
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         LaunchClock.mark("will-finish-launching")
@@ -36,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let first = positional.first {
             present(URL(fileURLWithPath: first))
         }
+
+        configureUpdates()
     }
 
     /// Finder double-click and drag-onto-icon both land here.
@@ -50,6 +63,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // process resident with no window would be exactly the kind of quiet
         // memory tenancy this app exists not to have.
         true
+    }
+
+    // MARK: - Updates
+
+    private func configureUpdates() {
+        // Reopen the photograph that was on screen, so an update costs the
+        // user their place for a second rather than losing it.
+        updates.currentlyViewedFile = { [weak self] in self?.controller?.currentFile }
+
+        let panel = updatePanel
+        updates.onStateChange = { [weak panel] state in
+            panel?.presentIfNoteworthy(state)
+        }
+
+        // Deferred past launch. The first seconds belong to getting a
+        // photograph on screen; a network request competing for them is the
+        // opposite of what this app is for.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            self?.updates.checkInBackgroundIfDue()
+        }
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        updatePanel.present()
+        updates.check(userInitiated: true)
+    }
+
+    @objc func toggleAutomaticUpdates(_ sender: Any?) {
+        Preferences.automaticUpdateChecks.toggle()
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+
+        let alert = NSAlert()
+        alert.messageText = "Casa \(version)"
+        alert.informativeText = "Build \(build)\n\nA fast, chromeless photo viewer for macOS.\nBuilt by Jack Harvest."
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Check for Updates\u{2026}")
+        if alert.runModal() == .alertSecondButtonReturn {
+            checkForUpdates(nil)
+        }
     }
 
     // MARK: - Presentation

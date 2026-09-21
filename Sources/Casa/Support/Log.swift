@@ -11,4 +11,5 @@ enum Log {
     static let decode = Logger(subsystem: subsystem, category: "decode")
     static let folder = Logger(subsystem: subsystem, category: "folder")
     static let render = Logger(subsystem: subsystem, category: "render")
+    static let update = Logger(subsystem: subsystem, category: "update")
 }

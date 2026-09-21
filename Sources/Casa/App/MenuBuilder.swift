@@ -27,6 +27,11 @@ enum MenuBuilder {
     private static func appMenu() -> NSMenu {
         let name = ProcessInfo.processInfo.processName
         let menu = NSMenu(title: name)
+        add(to: menu, "About \(name)", #selector(AppDelegate.showAbout(_:)), "", [])
+        menu.addItem(.separator())
+        add(to: menu, "Check for Updates\u{2026}", #selector(AppDelegate.checkForUpdates(_:)), "", [])
+        add(to: menu, "Check Automatically", #selector(AppDelegate.toggleAutomaticUpdates(_:)), "", [])
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Hide \(name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
