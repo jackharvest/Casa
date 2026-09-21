@@ -90,13 +90,16 @@ enum DefaultHandler {
     /// macOS may show its own confirmation; that is the system's call, not
     /// ours, and is the correct behaviour — changing a default handler is
     /// exactly the kind of thing the user should be able to veto.
-    static func claim(_ groups: [Group]) async -> Outcome {
+    static func claim(_ groups: [Group],
+                      onProgress: @MainActor (Int, Int) -> Void = { _, _ in }) async -> Outcome {
         let us = Bundle.main.bundleURL
         var claimed = 0
         var failed = 0
         var firstError: String?
 
-        for type in groups.flatMap(\.types) {
+        let all = groups.flatMap(\.types)
+        for (index, type) in all.enumerated() {
+            onProgress(index + 1, all.count)
             do {
                 try await NSWorkspace.shared.setDefaultApplication(at: us, toOpen: type)
                 claimed += 1

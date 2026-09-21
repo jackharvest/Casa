@@ -41,7 +41,31 @@ struct UpdateChecker: Sendable {
         self.currentVersion = version
     }
 
+    /// Every recent release, newest first. Used by the What's New pane.
+    func recentReleases(limit: Int = 12) async throws -> [UpdateRelease] {
+        try await fetchReleases()
+            .filter { !$0.prerelease }
+            .compactMap { $0.resolved() }
+            .sorted { $0.version > $1.version }
+            .prefix(limit)
+            .map { $0 }
+    }
+
     func check(includePrereleases: Bool = false) async throws -> Outcome {
+        let releases = try await fetchReleases()
+
+        let candidates = releases
+            .filter { includePrereleases || !$0.prerelease }
+            .compactMap { $0.resolved() }
+            .filter { $0.version > currentVersion }
+            .sorted { $0.version > $1.version }
+
+        guard let newest = candidates.first else { return .upToDate(current: currentVersion) }
+        return .available(newest)
+    }
+
+    /// One request, shared by the update check and the What's New pane.
+    private func fetchReleases() async throws -> [GitHubRelease] {
         // `/releases` rather than `/releases/latest`: the latter hides
         // pre-releases entirely, and we want to make that our decision rather
         // than GitHub's.
@@ -75,16 +99,7 @@ struct UpdateChecker: Sendable {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let releases = (try? decoder.decode([GitHubRelease].self, from: data)) ?? []
-
-        let candidates = releases
-            .filter { includePrereleases || !$0.prerelease }
-            .compactMap { $0.resolved() }
-            .filter { $0.version > currentVersion }
-            .sorted { $0.version > $1.version }
-
-        guard let newest = candidates.first else { return .upToDate(current: currentVersion) }
-        return .available(newest)
+        return (try? decoder.decode([GitHubRelease].self, from: data)) ?? []
     }
 
     /// Fetches a small sidecar asset — the digest or the signature.

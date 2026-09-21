@@ -12,5 +12,5 @@ build/
 *.pem
 private/
 
-# Generated from Scripts/IconTools — no binary master in the repo
+# Assembled by Scripts/make-icon.sh from Resources/Art — not a master
 Resources/Casa.icns

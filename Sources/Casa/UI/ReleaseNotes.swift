@@ -55,8 +55,18 @@ enum ReleaseNotes {
                 style.firstLineHeadIndent = Metrics.spacing(1.5)
                 style.paragraphSpacing = Metrics.spacing(0.5)
                 style.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
-                let text = "•\t" + String(line.dropFirst(2))
-                output.append(inline(text, font: body, color: .secondaryLabelColor, style: style))
+
+                // The bullet and tab are prepended *after* parsing. Running the
+                // inline parser over a string that starts with a tab makes it
+                // treat the line as preformatted, and bold inside bullets then
+                // renders as literal asterisks.
+                let marker = NSMutableAttributedString(
+                    string: "•\t",
+                    attributes: [.font: body, .foregroundColor: NSColor.tertiaryLabelColor,
+                                 .paragraphStyle: style])
+                marker.append(inline(String(line.dropFirst(2)), font: body,
+                                     color: .secondaryLabelColor, style: style))
+                output.append(marker)
                 output.append(NSAttributedString(string: "\n"))
                 continue
             }

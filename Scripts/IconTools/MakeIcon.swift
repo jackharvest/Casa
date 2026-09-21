@@ -69,28 +69,32 @@ func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
     CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
 }
 
-// MARK: - Palette
+// MARK: - Artwork
 
-/// The fan, from the leftmost blade round to the lowest.
+/// The colour fan, lifted from the reference artwork by
+/// `Scripts/IconTools/ExtractFan.swift` and stored as two layers:
 ///
-/// Drawn in this order, each over the last, which is what produces the
-/// overlapping-slide look: every blade's leading edge sits on top of its
-/// neighbour.
+/// - `fan-multiply` is what the glass does to whatever is behind it
+/// - `fan-light` is the specular edges, which are brighter than the ground
 ///
-/// The angles and lengths are deliberately uneven. Evenly spaced blades of
-/// equal length read as a pie chart; a handful of degrees and a few percent of
-/// length in either direction is the difference between a diagram and a stack
-/// of glass slides someone actually dropped in a tray.
-let fan: [(angle: Double, reach: CGFloat, color: (r: CGFloat, g: CGFloat, b: CGFloat))] = [
-    (114, 1.00, (0.929, 0.396, 0.239)),   // salmon
-    ( 97, 0.93, (0.737, 0.808, 0.196)),   // yellow-green
-    ( 78, 0.97, (0.302, 0.741, 0.267)),   // green
-    ( 61, 0.89, (0.180, 0.718, 0.553)),   // teal
-    ( 42, 1.00, (0.200, 0.510, 0.867)),   // blue
-    ( 23, 0.88, (0.720, 0.780, 0.886)),   // pale glass
-    (  6, 0.96, (0.898, 0.600, 0.114)),   // amber
-    (-13, 1.00, (0.898, 0.412, 0.122)),   // orange
-]
+/// Compositing them in that order over a redrawn tray reproduces the original
+/// where the tray matches and adapts where it doesn't. Drawing the fan
+/// procedurally got the structure right but never the subtlety — the real
+/// artwork has irregularities in every blade that are not worth deriving.
+func loadLayer(_ name: String) -> CGImage? {
+    let candidates = [
+        URL(fileURLWithPath: "Resources/Art/\(name).png"),
+        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Resources/Art/\(name).png"),
+    ]
+    for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+            return image
+        }
+    }
+    return nil
+}
 
 // MARK: - Render
 
@@ -115,7 +119,7 @@ func rgba(_ c: (r: CGFloat, g: CGFloat, b: CGFloat), _ alpha: CGFloat) -> CGColo
 
 // The macOS icon grid: the body occupies ~82% of the canvas, leaving room for
 // the shadow so icons of different shapes optically match in the Dock.
-let bodyInset = size * 0.090
+let bodyInset = size * 0.076
 let body = CGRect(x: bodyInset, y: bodyInset,
                   width: size - bodyInset * 2, height: size - bodyInset * 2)
 let bodyPath = squircle(in: body)
@@ -136,9 +140,9 @@ context.clip()
 
 // Cool near-white, brighter at the top-left where the light is.
 let slabColors = [
-    CGColor(red: 0.996, green: 0.998, blue: 1.000, alpha: 1),
-    CGColor(red: 0.941, green: 0.953, blue: 0.965, alpha: 1),
-    CGColor(red: 0.906, green: 0.922, blue: 0.941, alpha: 1),
+    CGColor(red: 0.988, green: 0.992, blue: 0.996, alpha: 1),
+    CGColor(red: 0.957, green: 0.969, blue: 0.980, alpha: 1),
+    CGColor(red: 0.933, green: 0.949, blue: 0.965, alpha: 1),
 ] as CFArray
 if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                              colors: slabColors, locations: [0, 0.55, 1]) {
@@ -150,7 +154,7 @@ if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!
 context.restoreGState()
 
 // --- the inner well, which is what makes it read as a tray with thick walls -
-let wallThickness = size * 0.064
+let wallThickness = size * 0.017
 let well = body.insetBy(dx: wallThickness, dy: wallThickness)
 let wellPath = squircle(in: well)
 
@@ -158,7 +162,7 @@ let wellPath = squircle(in: well)
 context.saveGState()
 context.addPath(wellPath)
 context.clip()
-context.setShadow(offset: .zero, blur: size * 0.018, color: gray(0.45, 0.42))
+context.setShadow(offset: .zero, blur: size * 0.011, color: gray(0.56, 0.18))
 context.addPath(squircle(in: well.insetBy(dx: -size * 0.02, dy: -size * 0.02)))
 context.addPath(wellPath)
 context.setFillColor(gray(1, 0.001))
@@ -170,58 +174,34 @@ context.saveGState()
 context.addPath(wellPath)
 context.clip()
 
-// Pivot low and left of centre, which is what gives the fan its sweep.
-let pivot = CGPoint(x: well.minX + well.width * 0.30,
-                    y: well.minY + well.height * 0.13)
-let bladeLength = well.width * 0.72
-let corner = well.width * 0.045
+if let multiply = loadLayer("fan-multiply"), let light = loadLayer("fan-light") {
+    // Fitted to the well with a little breathing room, preserving aspect.
+    let aspect = CGFloat(multiply.width) / CGFloat(multiply.height)
+    let available = well.insetBy(dx: well.width * 0.002, dy: well.height * 0.002)
+    var fanSize = CGSize(width: available.height * aspect, height: available.height)
+    if fanSize.width > available.width {
+        fanSize = CGSize(width: available.width, height: available.width / aspect)
+    }
+    let fanRect = CGRect(x: available.midX - fanSize.width / 2,
+                         y: available.midY - fanSize.height / 2,
+                         width: fanSize.width, height: fanSize.height)
 
-for entry in fan {
-    let path = blade(pivot: pivot, angle: entry.angle, length: bladeLength * entry.reach,
-                     // Wide enough that neighbours overlap by roughly a
-                     // third. The overlap *is* the effect: it is what turns
-                     // eight flat shapes into stacked colour filters.
-                     halfWidthNear: well.width * 0.022,
-                     halfWidthFar: well.width * 0.172,
-                     corner: corner)
-
-    // Shadow first, in normal blending — a shadow drawn in multiply would
-    // tint rather than darken.
+    // A soft shadow under the whole fan, so it sits in the tray rather than on
+    // top of it. Drawn from the multiply layer's own darkness.
     context.saveGState()
-    context.setShadow(offset: CGSize(width: size * 0.003, height: -size * 0.005),
-                      blur: size * 0.012, color: gray(0.32, 0.22))
-    context.addPath(path)
-    context.setFillColor(gray(1, 0.40))
-    context.fillPath()
-    context.restoreGState()
-
-    // The blade itself, multiplied so crossings mix the way real colour
-    // filters stacked on a light table do.
-    context.saveGState()
+    context.setShadow(offset: CGSize(width: 0, height: -size * 0.006),
+                      blur: size * 0.018, color: gray(0.35, 0.28))
     context.setBlendMode(.multiply)
-    context.addPath(path)
-    context.setFillColor(rgba(entry.color, 0.60))
-    context.fillPath()
-    context.restoreGState()
-
-    // A two-tone edge, which is what sells glass rather than paper: the white
-    // catches the light, and the faint darker line just inside it reads as the
-    // thickness of the sheet. Without the dark line, three overlapping blades
-    // merge into one continuous fan.
-    context.saveGState()
-    context.setBlendMode(.multiply)
-    context.addPath(path)
-    context.setStrokeColor(rgba(entry.color, 0.55))
-    context.setLineWidth(max(size * 0.0075, 0.7))
-    context.strokePath()
+    context.draw(multiply, in: fanRect)
     context.restoreGState()
 
     context.saveGState()
-    context.addPath(path)
-    context.setStrokeColor(gray(1, 0.85))
-    context.setLineWidth(max(size * 0.0035, 0.5))
-    context.strokePath()
+    context.setBlendMode(.plusLighter)
+    context.setAlpha(0.85)
+    context.draw(light, in: fanRect)
     context.restoreGState()
+} else {
+    FileHandle.standardError.write(Data("missing Resources/Art/fan-*.png\n".utf8))
 }
 context.restoreGState()
 
@@ -231,7 +211,7 @@ context.restoreGState()
 context.saveGState()
 context.addPath(bodyPath)
 context.clip()
-let sheen = [gray(1, 0.46), gray(1, 0.10), gray(1, 0.0)] as CFArray
+let sheen = [gray(1, 0.26), gray(1, 0.05), gray(1, 0.0)] as CFArray
 if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                              colors: sheen, locations: [0, 0.34, 0.62]) {
     context.drawLinearGradient(gradient,
@@ -247,8 +227,8 @@ context.restoreGState()
 // thickness where it turns.
 context.saveGState()
 context.addPath(bodyPath)
-context.setStrokeColor(gray(1, 0.98))
-context.setLineWidth(size * 0.016)
+context.setStrokeColor(gray(1, 0.38))
+context.setLineWidth(size * 0.0035)
 context.strokePath()
 
 // The bevel: a bright band just inside the outer edge, fading inward, which
@@ -257,7 +237,7 @@ context.saveGState()
 context.addPath(bodyPath)
 context.addPath(squircle(in: body.insetBy(dx: wallThickness, dy: wallThickness)))
 context.clip(using: .evenOdd)
-let bevel = [gray(1, 0.70), gray(1, 0.06), gray(0.72, 0.16)] as CFArray
+let bevel = [gray(1, 0.24), gray(1, 0.02), gray(0.78, 0.055)] as CFArray
 if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                              colors: bevel, locations: [0, 0.5, 1]) {
     context.drawLinearGradient(gradient,
@@ -267,15 +247,7 @@ if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!
 }
 context.restoreGState()
 
-context.addPath(squircle(in: body.insetBy(dx: size * 0.010, dy: size * 0.010)))
-context.setStrokeColor(gray(0.62, 0.20))
-context.setLineWidth(max(size * 0.0030, 0.5))
-context.strokePath()
 
-context.addPath(wellPath)
-context.setStrokeColor(gray(1, 0.70))
-context.setLineWidth(max(size * 0.0035, 0.5))
-context.strokePath()
 context.restoreGState()
 
 // MARK: - Write

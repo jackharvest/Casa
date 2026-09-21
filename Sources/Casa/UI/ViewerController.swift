@@ -179,7 +179,7 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     @objc func zoomToActual(_ sender: Any?) { canvas.actualSize(animated: true) }
     @objc func rotateLeft(_ sender: Any?) { canvas.rotate(by: -1) }
     @objc func rotateRight(_ sender: Any?) { canvas.rotate(by: 1) }
-    @objc func dismissViewer(_ sender: Any?) { view.window?.close() }
+    @objc func dismissViewer(_ sender: Any?) { dismissWindow() }
 
     /// Play or pause the current animation or video.
     @objc func togglePlayback(_ sender: Any?) {
@@ -323,7 +323,7 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
         switch event.charactersIgnoringModifiers {
         case "\u{1b}":            // Escape — trait 06, the app is disposable.
-            view.window?.close()
+            dismissWindow()
         case " ":
             // Space means "play" wherever something can play, and "next"
             // everywhere else — the two never compete because a still image
@@ -367,7 +367,17 @@ extension ViewerController: ImageCanvasDelegate {
     }
 
     func canvasDidRequestDismiss(_ canvas: ImageCanvasView) {
-        view.window?.close()
+        dismissWindow()
+    }
+
+    /// Goes through `performClose` rather than `close` so the window delegate
+    /// can run the shrink-to-centre first.
+    private func dismissWindow() {
+        if let viewer = view.window as? ViewerWindow {
+            viewer.dismissAnimated()
+        } else {
+            view.window?.close()
+        }
     }
 
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView) {

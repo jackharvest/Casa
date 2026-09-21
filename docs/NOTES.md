@@ -136,7 +136,15 @@ bundle or its parent is not writable, which is checked *before* offering the
 update rather than after a download. A privileged install (`/Applications`
 owned by root) would need `SMJobBless` or an admin prompt and is not built.
 
-## 2d. Icon, DMG, and the welcome screen
+## 2e. Release notes style
+
+Short. Bullets. What changed, not why or how. No implementation philosophy in a
+release note. The published notes for 0.1.0 through 0.5.0 were rewritten to this
+standard on 21 Sep; match them.
+
+Same for the README: plain sentences, few em-dashes, no aphorisms.
+
+## 2d. Icon, DMG, and the settings window
 
 **The icon is code**, not a file: `Scripts/IconTools/MakeIcon.swift` draws a
 superellipse tray (`n = 5`, which is much closer to Apple's continuous-curvature
@@ -162,11 +170,20 @@ then converted to compressed read-only. Two traps, both hit:
 
 It needs Automation permission for Finder on the machine cutting the release.
 
-**The welcome screen** (`UI/WelcomeWindowController.swift`) is what a bare
-launch shows. `Core/DefaultHandler.swift` reads the current handler per group
+**The settings window** (`UI/SettingsWindowController.swift`) is what a bare
+launch shows: a source list with File Types, What's New, About and Support.
+`--settings <tab>` opens one directly, which is how the screenshots are taken.
+Note that the tab name is itself a positional argument, so the flag has to be
+checked *before* the "open this file" path or it tries to open a file named
+`about`. `Core/DefaultHandler.swift` reads the current handler per group
 via `NSWorkspace.urlForApplication(toOpen:)` and claims types with
 `NSWorkspace.setDefaultApplication(at:toOpen:)` — note the label is `toOpen:`,
-not `toOpenContentType:` as the older documentation suggests. There is **no**
+not `toOpenContentType:` as the older documentation suggests.
+
+**macOS prompts once per file type**, and there are 13 of them, so the user is
+warned with the exact count before it starts and sees progress as it goes. The
+deprecated `LSSetDefaultRoleHandlerForContentType` does not prompt, but routing
+around a consent dialog is the wrong trade. There is **no**
 System Settings pane for per-type image handlers, so the fallback explains
 Finder's Get Info route rather than opening a pane that cannot help.
 

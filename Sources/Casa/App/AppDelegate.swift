@@ -48,13 +48,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // Files passed on the command line, for development and for `open -a`.
-        if let first = positional.first {
+        // Checked before the positional path: the tab name is itself a
+        // positional argument, and would otherwise be treated as a filename.
+        if let flag = arguments.firstIndex(of: "--settings"),
+           arguments.indices.contains(flag + 1),
+           let tab = SettingsWindowController.Tab(rawValue: arguments[flag + 1]) {
+            settings.present(selecting: tab)
+        } else if let first = positional.first {
             present(URL(fileURLWithPath: first))
         } else if window == nil {
             // Launched without a photo. An empty viewer would be pointless —
             // this app's job starts with a double-click — so the useful thing
             // to show is how to become the app that receives them.
-            welcome.present()
+            settings.present()
         }
 
         configureUpdates()
@@ -119,14 +125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Welcome
 
-    private lazy var welcome: WelcomeWindowController = {
-        let controller = WelcomeWindowController()
+    private lazy var settings: SettingsWindowController = {
+        let controller = SettingsWindowController()
         controller.onOpen = { [weak self] url in self?.present(url) }
+        controller.onCheckForUpdates = { [weak self] in self?.checkForUpdates(nil) }
         return controller
     }()
 
     @objc func showWelcome(_ sender: Any?) {
-        welcome.present()
+        settings.present()
     }
 
     /// Clicking the Dock icon with nothing open, or launching bare.
@@ -136,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // A viewer already on screen means the user has a photo open; do not
         // shove a welcome window in front of it.
         if let window, window.isVisible { return false }
-        welcome.present()
+        settings.present()
         return true
     }
 
@@ -178,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let screen = invokingScreen()
 
         if let controller, let window {
-            welcome.close()
+            settings.close()
             // Follow the user to the display they invoked this from. Opening a
             // photo on the laptop screen when they double-clicked it on the
             // external monitor is exactly the kind of thing that makes an app
@@ -192,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        welcome.close()
+        settings.close()
         LaunchClock.mark("present-begin")
         let window = ViewerWindow(screen: screen, hidesDock: Preferences.hidesDock)
         let controller = ViewerController()
@@ -204,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // screen when the first bitmap lands. The perceived launch time is the
         // time to something appearing, not the time to the final image.
         window.applyScreenFrame(hidingDock: Preferences.hidesDock)
-        window.makeKeyAndOrderFront(nil)
+        window.presentAnimated()
         NSApp.activate(ignoringOtherApps: true)
         LaunchClock.mark("window-visible")
 

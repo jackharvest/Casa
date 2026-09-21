@@ -52,6 +52,69 @@ final class ViewerWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    // MARK: - Open and close
+
+    /// How far in the window starts and ends. Small: this is a flourish, not a
+    /// journey, and anything larger starts to feel like a transition you have
+    /// to wait through.
+    private static let scaleInset: CGFloat = 0.065
+    private static let openDuration: TimeInterval = 0.14
+    private static let closeDuration: TimeInterval = 0.10
+
+    /// True once a close animation has started, so the delegate lets the
+    /// second `close()` through instead of animating forever.
+    private(set) var isDismissing = false
+
+    /// Expands from the centre. Picasa's viewer appeared this way and it is
+    /// most of why opening a photo felt like an event rather than a window
+    /// being created.
+    func presentAnimated() {
+        guard !Accommodations.current.reduceMotion else {
+            makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let destination = frame
+        let start = destination.insetBy(dx: destination.width * Self.scaleInset,
+                                        dy: destination.height * Self.scaleInset)
+        setFrame(start, display: false)
+        alphaValue = 0
+        makeKeyAndOrderFront(nil)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.openDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(destination, display: true)
+            animator().alphaValue = 1
+        }
+    }
+
+    /// The reverse, then actually close.
+    func dismissAnimated() {
+        guard !isDismissing else { return }
+        isDismissing = true
+
+        guard !Accommodations.current.reduceMotion else {
+            close()
+            return
+        }
+
+        let start = frame
+        let end = start.insetBy(dx: start.width * Self.scaleInset,
+                                dy: start.height * Self.scaleInset)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.closeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().setFrame(end, display: true)
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            // The completion handler is nonisolated; the animation was started
+            // on the main actor and AppKit runs this there too.
+            MainActor.assumeIsolated { self?.close() }
+        }
+    }
+
     /// Reduce Transparency exists precisely to switch off effects like ours.
     /// Honoring it is not optional: translucency over arbitrary desktop
     /// content is a legibility problem before it is a preference.
@@ -94,6 +157,16 @@ final class ViewerWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.presentationOptions = []
+    }
+
+    /// Intercepts every close — Escape, ⌘W, the surround click — so they all
+    /// get the same shrink-to-centre rather than only the paths that happened
+    /// to remember to ask for it.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let window = sender as? ViewerWindow else { return true }
+        if window.isDismissing { return true }
+        window.dismissAnimated()
+        return false
     }
 
     /// Follows the window to a different display, and tracks resolution
