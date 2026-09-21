@@ -179,6 +179,7 @@ log show --last 2m --info --debug \
 |---|---|
 | `--bench <n>` | Auto-navigate *n* steps, report first-pixel and sharp latencies |
 | `--selftest <dir>` | Decode every file, print a coverage table, exit non-zero on failure |
+| `--selfcheck` | Assert zoom anchoring, the dismiss surround, version ordering and the digest against the real views; exits non-zero on failure |
 | `--keep-chrome` | Pin the chrome open — design review otherwise races the auto-hide |
 | `--screen <n>` | Open on a specific display, for density testing |
 | `--migrate-screens <a>,<b>` | Open on *a*, move to *b* after 3 s — tests the density re-decode |

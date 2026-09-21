@@ -30,6 +30,7 @@ impossible to tell you have reached the end of a folder.
 | Trackpad pinch | Zoom about the pointer |
 | Double-click | Toggle fit ⇄ 1:1, anchored where you clicked |
 | Drag | Pan |
+| Click the surround | Dismiss — same as Escape |
 
 A mouse wheel and a trackpad are different instruments and are deliberately not
 mapped to the same gesture — `NSEvent.hasPreciseScrollingDeltas` tells them

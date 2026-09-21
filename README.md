@@ -159,8 +159,13 @@ log show --last 2m --info --debug \
     --predicate 'subsystem == "com.jackharvest.casa"' --style compact
 ```
 
-Debug flags: `--bench <n>`, `--selftest <dir>`, `--keep-chrome`, `--screen <n>`,
-`--migrate-screens <a>,<b>`, `--finder-sort-probe <dir>`.
+```sh
+# Geometry and version arithmetic, asserted against the real views
+build/Casa.app/Contents/MacOS/Casa --selfcheck
+```
+
+Debug flags: `--bench <n>`, `--selftest <dir>`, `--selfcheck`, `--keep-chrome`,
+`--screen <n>`, `--migrate-screens <a>,<b>`, `--finder-sort-probe <dir>`.
 
 ## Releasing
 

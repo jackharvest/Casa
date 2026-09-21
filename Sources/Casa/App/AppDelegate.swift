@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             FinderSort.runProbe(directory: URL(fileURLWithPath: path))
         }
 
+        if arguments.contains("--selfcheck") {
+            SelfCheck.run()
+        }
+
         if arguments.contains("--selftest"), let path = positional.first {
             // Async because movies are, so the run loop has to keep turning;
             // `run` exits the process when it is done.

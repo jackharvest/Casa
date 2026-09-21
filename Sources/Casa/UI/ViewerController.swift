@@ -366,6 +366,10 @@ extension ViewerController: ImageCanvasDelegate {
         session?.refreshForResolutionChange()
     }
 
+    func canvasDidRequestDismiss(_ canvas: ImageCanvasView) {
+        view.window?.close()
+    }
+
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView) {
         chrome.updatePlayback(canPlay: canvas.playable != .none, isPlaying: canvas.isPlaying)
     }

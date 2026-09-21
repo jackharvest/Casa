@@ -322,7 +322,7 @@ final class ImageCanvasView: NSView {
     }
 
     /// The on-screen rect the image occupies. Derived, never assigned.
-    private var displayedRect: CGRect {
+    var displayedRect: CGRect {
         let size = displayedSize
         return CGRect(x: center.x - size.width / 2,
                       y: center.y - size.height / 2,
@@ -550,20 +550,50 @@ final class ImageCanvasView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        // A single click on a playable item plays it — the same gesture every
-        // other video surface on the platform uses.
-        if event.clickCount == 1, playable != .none {
-            togglePlayback()
-            panOrigin = convert(event.locationInWindow, from: nil)
-            return
-        }
+        let point = convert(event.locationInWindow, from: nil)
+
         if event.clickCount == 2 {
-            toggleZoom(at: convert(event.locationInWindow, from: nil))
+            toggleZoom(at: point)
             panOrigin = nil
             return
         }
-        panOrigin = convert(event.locationInWindow, from: nil)
+
+        // Clicking the empty surround beside the photograph dismisses, the way
+        // Picasa's viewer did. It reads as "put this down" and it is the
+        // gesture people reach for before they remember Escape.
+        //
+        // Deliberately excludes the bands the chrome occupies: someone aiming
+        // for the thumbnail rail and missing by a few pixels should not have
+        // the window close on them.
+        if isPointInDismissableSurround(point) {
+            delegate?.canvasDidRequestDismiss(self)
+            return
+        }
+
+        // A single click on a playable item plays it — the same gesture every
+        // other video surface on the platform uses.
+        if playable != .none {
+            togglePlayback()
+            panOrigin = point
+            return
+        }
+
+        panOrigin = point
         NSCursor.closedHand.push()
+    }
+
+    /// Whether a click landed on the ground rather than on anything.
+    ///
+    /// True only outside the photograph *and* outside the chrome's bands. When
+    /// the image is zoomed in far enough to overflow the window there is no
+    /// surround at all, so this naturally stops applying.
+    func isPointInDismissableSurround(_ point: CGPoint) -> Bool {
+        guard imagePixelSize.width > 0 else { return false }
+        if displayedRect.insetBy(dx: -2, dy: -2).contains(point) { return false }
+
+        let topBand = contentInsets.top
+        let bottomBand = bounds.height - contentInsets.bottom
+        return point.y > topBand && point.y < bottomBand
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -587,6 +617,8 @@ final class ImageCanvasView: NSView {
 
 @MainActor
 protocol ImageCanvasDelegate: AnyObject {
+    /// The user clicked the ground beside the photograph.
+    func canvasDidRequestDismiss(_ canvas: ImageCanvasView)
     func canvas(_ canvas: ImageCanvasView, didChangeZoomTo scale: CGFloat, isFitted: Bool)
     func canvasDidChangeBackingScale(_ canvas: ImageCanvasView, to scale: CGFloat)
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView)
