@@ -52,6 +52,13 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         session.onChange = { [weak self] session in
             self?.refreshChrome(for: session)
         }
+        session.onThumbnailInvalidated = { [weak self] url in
+            guard let self else { return }
+            self.thumbnailMirror.removeValue(forKey: url)
+            self.pendingThumbnails.remove(url)
+            self.chrome.filmstrip.clearRotation(for: url)
+            self.filmstripRequestThumbnail(for: url)
+        }
         session.onRotationFailed = { [weak self] message in
             guard let self, let url = self.session.currentURL else { return }
             self.chrome.update(filename: url.lastPathComponent,
@@ -170,6 +177,15 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     private func updateCanvasInsets() {
         let showsFilmstrip = session.urls.count > 1
         chrome.filmstrip.isHidden = !showsFilmstrip
+
+        // In a window the photograph fills the frame and the chrome floats over
+        // it, so there are no insets to reserve. Full-screen keeps them,
+        // because there the surround is deliberate space rather than a bar.
+        if (view.window as? ViewerWindow)?.presentation == .windowed {
+            canvas.contentInsets = NSEdgeInsets()
+            return
+        }
+
         canvas.contentInsets = NSEdgeInsets(
             top: chrome.topInset,
             left: Metrics.spacing(2),
@@ -198,6 +214,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     private func rotate(by turns: Int) {
         canvas.rotate(by: turns)
         session.noteRotation(turns)
+        if let url = session.currentURL {
+            chrome.filmstrip.setRotation(canvas.quarterTurns, for: url)
+        }
         guard let url = session.currentURL, !ImageRotator.canRotate(url) else { return }
         chrome.update(filename: url.lastPathComponent,
                       position: session.positionDescription,
@@ -395,6 +414,13 @@ extension ViewerController: ImageCanvasDelegate {
         session.advance(by: offset)
     }
 
+    /// Drives a zoom toward a corner, so the badge can be captured.
+    func demoZoom() {
+        let rect = canvas.bounds
+        let corner = CGPoint(x: rect.minX + rect.width * 0.34, y: rect.minY + rect.height * 0.36)
+        for _ in 0..<9 { canvas.zoom(by: 1.16, at: corner) }
+    }
+
     /// Public entry so the debug flag can drive it too.
     func toggleWindowedPresentation() { canvasDidRequestWindowedToggle(canvas) }
 
@@ -408,7 +434,9 @@ extension ViewerController: ImageCanvasDelegate {
         let next: ViewerWindow.Presentation = window.presentation == .fullBleed ? .windowed : .fullBleed
         window.setPresentation(next, contentSize: canvas.preferredWindowedContentSize(maximum: room))
         window.title = session.currentURL?.lastPathComponent ?? "Casa"
-        // The free-pan offset belongs to the old geometry.
+        // Insets differ between the two modes, and the free-pan offset belongs
+        // to the old geometry.
+        updateCanvasInsets()
         canvas.fit(animated: !Accommodations.current.reduceMotion)
     }
 

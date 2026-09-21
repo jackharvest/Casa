@@ -63,39 +63,63 @@ final class ViewerWindow: NSWindow {
 
     // MARK: - Open and close
 
-    /// How far in the window starts and ends. Small: this is a flourish, not a
-    /// journey, and anything larger starts to feel like a transition you have
-    /// to wait through.
-    private static let scaleInset: CGFloat = 0.065
-    private static let openDuration: TimeInterval = 0.14
-    private static let closeDuration: TimeInterval = 0.10
+    /// A CRT switching on: a bright horizontal line snaps across the middle of
+    /// the screen, then opens vertically. Closing runs it backwards.
+    ///
+    /// Two phases rather than a plain scale, because the line is what sells it.
+    /// It also buys a little time — roughly 90 ms where the window is on screen
+    /// but only a few pixels tall — for the first decode and the chrome to be
+    /// ready by the time there is anything to look at.
+    private static let lineHeight: CGFloat = 3
+    private static let widenDuration: TimeInterval = 0.085
+    private static let openDuration: TimeInterval = 0.135
+    private static let collapseDuration: TimeInterval = 0.105
+    private static let pinchDuration: TimeInterval = 0.070
 
     /// True once a close animation has started, so the delegate lets the
     /// second `close()` through instead of animating forever.
     private(set) var isDismissing = false
 
-    /// Expands from the centre. Picasa's viewer appeared this way and it is
-    /// most of why opening a photo felt like an event rather than a window
-    /// being created.
+    /// The frame the window belongs at, captured before the animation shrinks
+    /// it to a line.
+    private var restingFrame: NSRect = .zero
+
     func presentAnimated() {
+        restingFrame = frame
+
         guard !Accommodations.current.reduceMotion else {
             makeKeyAndOrderFront(nil)
             return
         }
 
-        let destination = frame
-        let start = destination.insetBy(dx: destination.width * Self.scaleInset,
-                                        dy: destination.height * Self.scaleInset)
-        setFrame(start, display: false)
-        alphaValue = 0
+        let destination = restingFrame
+        let middle = CGPoint(x: destination.midX, y: destination.midY)
+
+        // A stub in the middle, the width of a cursor blink.
+        setFrame(NSRect(x: middle.x - destination.width * 0.11,
+                        y: middle.y - Self.lineHeight / 2,
+                        width: destination.width * 0.22,
+                        height: Self.lineHeight),
+                 display: false)
         makeKeyAndOrderFront(nil)
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.openDuration
+        let line = NSRect(x: destination.minX, y: middle.y - Self.lineHeight / 2,
+                          width: destination.width, height: Self.lineHeight)
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.widenDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().setFrame(destination, display: true)
-            animator().alphaValue = 1
-        }
+            animator().setFrame(line, display: true)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.isDismissing else { return }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Self.openDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    self.animator().setFrame(destination, display: true)
+                }
+            }
+        })
     }
 
     /// The reverse, then actually close.
@@ -109,19 +133,29 @@ final class ViewerWindow: NSWindow {
         }
 
         let start = frame
-        let end = start.insetBy(dx: start.width * Self.scaleInset,
-                                dy: start.height * Self.scaleInset)
+        let middle = CGPoint(x: start.midX, y: start.midY)
+        let line = NSRect(x: start.minX, y: middle.y - Self.lineHeight / 2,
+                          width: start.width, height: Self.lineHeight)
+        let dot = NSRect(x: middle.x - 1, y: middle.y - Self.lineHeight / 2,
+                         width: 2, height: Self.lineHeight)
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.closeDuration
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.collapseDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            animator().setFrame(end, display: true)
-            animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            // The completion handler is nonisolated; the animation was started
-            // on the main actor and AppKit runs this there too.
-            MainActor.assumeIsolated { self?.close() }
-        }
+            animator().setFrame(line, display: true)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = Self.pinchDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    self.animator().setFrame(dot, display: true)
+                    self.animator().alphaValue = 0
+                }, completionHandler: {
+                    MainActor.assumeIsolated { self.close() }
+                })
+            }
+        })
     }
 
     /// Reduce Transparency exists precisely to switch off effects like ours.
@@ -133,6 +167,14 @@ final class ViewerWindow: NSWindow {
         // desktop behind was effectively gone, which reads as a modal sheet
         // rather than as a viewer floating over your work.
         backgroundColor = NSColor(white: 0.06, alpha: opaque ? 1.0 : 0.45)
+    }
+
+    /// True while the open or close animation has the window squeezed into a
+    /// line. The canvas skips fitting during that, because fitting a photo into
+    /// a three-pixel-tall view is wasted work that also produces a visible
+    /// flash of a wrongly scaled image at the end.
+    var isAnimatingPresentation: Bool {
+        frame.height < restingFrame.height * 0.5 && restingFrame.height > 0
     }
 
     /// Switches between full-bleed and a window hugging the photograph.
@@ -160,11 +202,14 @@ final class ViewerWindow: NSWindow {
             let rect = NSRect(x: visible.midX - size.width / 2,
                               y: visible.midY - size.height / 2,
                               width: size.width, height: size.height)
-            setFrame(frameRect(forContentRect: rect), display: true,
+            let framed = frameRect(forContentRect: rect)
+            restingFrame = framed
+            setFrame(framed, display: true,
                      animate: !Accommodations.current.reduceMotion)
 
         case .fullBleed:
             styleMask = [.borderless, .resizable]
+            restingFrame = screen.visibleFrame
             titlebarAppearsTransparent = true
             titleVisibility = .hidden
             isMovableByWindowBackground = false

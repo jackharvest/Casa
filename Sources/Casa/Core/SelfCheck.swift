@@ -80,7 +80,7 @@ enum SelfCheck {
         canvas.display(image, preservingZoom: false)
         canvas.layoutSubtreeIfNeeded()
 
-        let before = canvas.displayedRect
+        var before = canvas.displayedRect
         expect(before.width > 0, "a fitted image has a non-zero footprint")
         // Fit never upscales, and a 4000 px image in a 1000 pt view must be
         // bounded by the width.
@@ -88,6 +88,7 @@ enum SelfCheck {
 
         // Anchor on a point a third of the way across the image and confirm
         // that the same *image* pixel stays under it after zooming.
+        before = canvas.displayedRect
         let anchor = CGPoint(x: before.minX + before.width / 3,
                             y: before.minY + before.height / 2)
         let fractionBefore = (anchor.x - before.minX) / before.width
@@ -106,6 +107,23 @@ enum SelfCheck {
         expectClose(restored.width, before.width, 0.5, "zooming out restores the footprint")
         expectClose((anchor.x - restored.minX) / restored.width, fractionBefore, 0.01,
                     "the anchored point survives a round trip")
+
+        // Zooming into a corner, repeatedly, across the fit boundary.
+        //
+        // This is the regression that mattered: the clamp used to collapse to a
+        // single permitted position exactly when the image grew past the
+        // viewport, so a corner zoom snapped to the middle.
+        canvas.fit(animated: false)
+        let corner = CGPoint(x: canvas.displayedRect.minX + canvas.displayedRect.width * 0.08,
+                             y: canvas.displayedRect.minY + canvas.displayedRect.height * 0.08)
+        let cornerFractionBefore = (corner.x - canvas.displayedRect.minX) / canvas.displayedRect.width
+        for _ in 0..<24 { canvas.zoom(by: 1.15, at: corner) }
+        let zoomed = canvas.displayedRect
+        expect(zoomed.width > 1000, "twenty-four steps really did zoom in")
+        expectClose((corner.x - zoomed.minX) / zoomed.width, cornerFractionBefore, 0.02,
+                    "a corner stays under the pointer across the fit boundary")
+
+        canvas.fit(animated: false)
     }
 
     // MARK: - Surround

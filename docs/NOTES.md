@@ -171,6 +171,31 @@ is `/`, so `open -a Casa --args foo/bar.jpg` silently fails to find the file and
 the viewer correctly reports that it cannot display it. Always pass absolute
 paths when testing.
 
+## 2h. The zoom clamp, and why it snapped
+
+Worth writing down because the symptom and the cause look unrelated.
+
+Zooming into a corner would run correctly for a while and then yank the picture
+back toward the middle. The cause was `constrainedCenter` using two different
+rules — one while the image fits the view, one once it overflows — applied
+separately. At exactly the crossover the overflow rule permits a **single**
+centre position:
+
+```
+lower = viewport - size/2        upper = size/2
+size == viewport  ->  lower == upper == viewport/2
+```
+
+So the moment the image grew past the viewport it was pinned to dead centre,
+and regained freedom only slowly (a 20 px range at 1.02x). The permitted range
+is now the *union* of both rules, which is continuous in size. `--selfcheck`
+covers it: twenty-four zoom steps at a corner, asserting the anchored fraction
+holds across the boundary.
+
+The zoom percentage is measured Photoshop-style — 100% is one image pixel per
+screen pixel, not "fills the window" — because on a large photo the interesting
+fact is that you are still under 100%.
+
 ## 2f. Liquid Glass
 
 `UI/Glass.swift` wraps `NSGlassEffectView` (macOS 26+) with an

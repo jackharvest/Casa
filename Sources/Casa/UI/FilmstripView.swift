@@ -35,6 +35,12 @@ final class FilmstripView: NSView {
     /// which is exactly how the current image ended up as the one blank cell
     /// in the rail. Contents follow the URL, never the slot.
     private var cellURL: [Int: URL] = [:]
+    /// Display rotations the user has applied but not yet committed to disk.
+    ///
+    /// The rail should agree with the photograph immediately — seeing the big
+    /// picture turn while its thumbnail stays put reads as a bug. Cleared once
+    /// the file itself is rewritten and the thumbnail re-decoded.
+    private var rotations: [URL: Int] = [:]
     private var accommodations = Accommodations.current
 
     override init(frame frameRect: NSRect) {
@@ -90,6 +96,39 @@ final class FilmstripView: NSView {
         layoutCells(animated: false)
     }
 
+    /// Turns the cell for `url` to match the photograph.
+    func setRotation(_ turns: Int, for url: URL) {
+        let normalized = ((turns % 4) + 4) % 4
+        if normalized == 0 { rotations.removeValue(forKey: url) } else { rotations[url] = normalized }
+        for (index, shown) in cellURL where shown == url {
+            guard let cell = cells[index] else { continue }
+            applyRotation(to: cell, url: url, animated: true)
+        }
+    }
+
+    /// Forgets a rotation, for when the file has been rewritten and the
+    /// thumbnail now carries the turn itself.
+    func clearRotation(for url: URL) {
+        rotations.removeValue(forKey: url)
+        for (index, shown) in cellURL where shown == url {
+            guard let cell = cells[index] else { continue }
+            applyRotation(to: cell, url: url, animated: false)
+        }
+    }
+
+    private func applyRotation(to cell: CALayer, url: URL, animated: Bool) {
+        let angle = CGFloat(rotations[url] ?? 0) * .pi / 2
+        CATransaction.begin()
+        if animated, !accommodations.reduceMotion {
+            CATransaction.setAnimationDuration(0.2)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        cell.transform = CATransform3DMakeRotation(angle, 0, 0, 1)
+        CATransaction.commit()
+    }
+
     /// Called when a thumbnail finishes decoding. Refreshes every cell
     /// currently showing that image, by URL rather than by slot.
     func thumbnailArrived(for url: URL) {
@@ -138,6 +177,7 @@ final class FilmstripView: NSView {
             cell.frame = CGRect(x: (originX + CGFloat(index) * step).rounded(),
                                 y: y, width: cellEdge, height: cellEdge)
             style(cell, isCurrent: index == currentIndex)
+            applyRotation(to: cell, url: urls[index], animated: false)
         }
 
         CATransaction.commit()

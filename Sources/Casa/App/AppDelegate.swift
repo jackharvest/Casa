@@ -221,6 +221,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.controller = controller
         scheduleScreenMigrationTestIfRequested(window)
 
+        // `--demo-zoom` zooms toward a corner after launch, so the zoom badge
+        // can be seen and captured without a hand on the wheel.
+        if CommandLine.arguments.contains("--demo-zoom") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak controller] in
+                controller?.demoZoom()
+            }
+        }
+
         // `--windowed` drops into the hugging window shortly after launch, for
         // screenshots and for checking the mode without clicking.
         if CommandLine.arguments.contains("--windowed") {

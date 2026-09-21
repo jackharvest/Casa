@@ -31,6 +31,9 @@ final class Session {
     /// Fired once per navigation with the best rung that reached the screen,
     /// or `nil` when the file could not be displayed at all.
     var onPaint: ((DecodeTier?) -> Void)?
+    /// Fired once a rotation has been written and the cached images dropped,
+    /// so the rail can stop faking the turn and re-decode.
+    var onThumbnailInvalidated: ((URL) -> Void)?
     /// Fired when a rotation could not be written.
     var onRotationFailed: ((String) -> Void)?
     /// Fired when a file cannot be displayed, so the chrome can say so.
@@ -224,6 +227,7 @@ final class Session {
                 // The file changed underneath us, so anything cached for it is
                 // now the old orientation.
                 await self.pipeline.forget(url)
+                self.onThumbnailInvalidated?(url)
             }
         }
     }

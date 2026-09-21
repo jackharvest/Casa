@@ -39,6 +39,10 @@ final class ImageCanvasView: NSView {
     private(set) var isFitted = true
 
     private var panOrigin: CGPoint?
+    private let zoomBadge = ZoomBadge(frame: .zero)
+    /// Last place the pointer was, so the badge can sit beside it even when the
+    /// zoom came from a pinch rather than a wheel.
+    private var lastPointer: CGPoint = .zero
 
     private let minScale: CGFloat = 0.02
     private let maxScale: CGFloat = 32
@@ -62,6 +66,7 @@ final class ImageCanvasView: NSView {
         // An implicit animation on every geometry change is the single most
         // common reason a viewer feels sluggish. Disable them at the source;
         // the two places that genuinely want animation opt back in explicitly.
+        addSubview(zoomBadge)
         imageLayer.actions = [
             "contents": NSNull(), "bounds": NSNull(),
             "position": NSNull(), "transform": NSNull(),
@@ -332,6 +337,8 @@ final class ImageCanvasView: NSView {
 
     override func layout() {
         super.layout()
+        // Nothing useful to compute while the window is squeezed into a line.
+        if (window as? ViewerWindow)?.isAnimatingPresentation == true { return }
         if isFitted {
             fit(animated: false)
         } else {
@@ -369,7 +376,9 @@ final class ImageCanvasView: NSView {
         endSmoothZoom()
         isFitted = false
         targetScale = 1 / backingScale
-        setScale(targetScale, anchoredAt: CGPoint(x: bounds.midX, y: bounds.midY), animated: animated)
+        let middle = CGPoint(x: bounds.midX, y: bounds.midY)
+        setScale(targetScale, anchoredAt: middle, animated: animated)
+        announceZoom(at: middle)
     }
 
     // MARK: - Zoom
@@ -402,6 +411,7 @@ final class ImageCanvasView: NSView {
         isFitted = false
         targetScale = scale * factor
         setScale(targetScale, anchoredAt: anchor, animated: !accommodations.reduceMotion)
+        announceZoom(at: anchor)
     }
 
     /// Toggles fit ⇄ 1:1 anchored where the user clicked, so double-clicking a
@@ -411,6 +421,7 @@ final class ImageCanvasView: NSView {
         if isFitted {
             isFitted = false
             setScale(1 / backingScale, anchoredAt: anchor, animated: animated)
+            announceZoom(at: anchor)
         } else {
             fit(animated: animated)
         }
@@ -445,33 +456,32 @@ final class ImageCanvasView: NSView {
         let size = displayedSize
         var result = center
 
-        // Two different rules, because they answer two different questions.
+        // Two limits, and the permitted range is the union of them.
         //
-        // When the photograph fits, dragging it is *aiming*: Picasa let you
-        // put a fitted photo wherever you liked and left it there, because you
-        // were almost certainly about to zoom into that spot. Snapping it back
-        // to the middle fights the user. The only limit is that a sensible
-        // fraction has to stay on screen.
+        // *Cover* says the image may sit anywhere that still fills the view.
+        // *Keep* says a reasonable share of the image must remain on screen,
+        // which is what lets you drag a fitted photo off to one side and have
+        // it stay there — Picasa did that because you are usually lining up a
+        // zoom.
         //
-        // When it overflows, dragging is *inspecting*, and the edges should
-        // stop where the picture stops.
+        // Taking whichever is more permissive matters more than either rule.
+        // Applied separately they disagree violently at the moment the image
+        // grows past the viewport: at exactly that size the cover rule permits
+        // a *single* centre position, the dead middle, so zooming into a corner
+        // snapped to the middle the instant it crossed fit and only regained
+        // freedom slowly. The union is continuous in size, so it does not.
         let keptOnScreen: CGFloat = 0.30
 
-        if size.width <= bounds.width {
-            let margin = size.width * keptOnScreen
-            result.x = min(max(result.x, margin - size.width / 2),
-                           bounds.width - margin + size.width / 2)
-        } else {
-            result.x = min(max(result.x, bounds.width - size.width / 2), size.width / 2)
+        func clamp(_ value: CGFloat, size: CGFloat, viewport: CGFloat) -> CGFloat {
+            let half = size / 2
+            let keep = size * keptOnScreen
+            let lower = min(viewport - half, keep - half)
+            let upper = max(half, viewport - keep + half)
+            return min(max(value, lower), upper)
         }
 
-        if size.height <= bounds.height {
-            let margin = size.height * keptOnScreen
-            result.y = min(max(result.y, margin - size.height / 2),
-                           bounds.height - margin + size.height / 2)
-        } else {
-            result.y = min(max(result.y, bounds.height - size.height / 2), size.height / 2)
-        }
+        result.x = clamp(result.x, size: size.width, viewport: bounds.width)
+        result.y = clamp(result.y, size: size.height, viewport: bounds.height)
         return result
     }
 
@@ -509,6 +519,14 @@ final class ImageCanvasView: NSView {
         window?.invalidateCursorRects(for: self)
     }
 
+    /// Puts the percentage beside the pointer. Skipped while fitted, because
+    /// "this is the whole picture" is not news.
+    private func announceZoom(at pointer: CGPoint) {
+        guard imagePixelSize.width > 0 else { return }
+        lastPointer = pointer
+        zoomBadge.show(scale: scale, backingScale: backingScale, pointer: pointer, in: self)
+    }
+
     private func notifyZoom() {
         // Silent until there is something to zoom. `fit()` runs during window
         // setup with no image loaded, where `scale` is still its initial 1.0 —
@@ -535,14 +553,15 @@ final class ImageCanvasView: NSView {
         // points, and the window is measured in points.
         var size = CGSize(width: rotated.width / backingScale, height: rotated.height / backingScale)
 
-        let chromeHeight = contentInsets.top + contentInsets.bottom
-        let room = CGSize(width: maximum.width, height: max(maximum.height - chromeHeight, 200))
-        let shrink = min(1, min(room.width / size.width, room.height / size.height))
+        // No allowance for chrome. In a window the photograph fills the frame
+        // edge to edge and the controls float over it — a letterboxed bar at
+        // the bottom to hold a rail is exactly the black band this is meant to
+        // avoid.
+        let shrink = min(1, min(maximum.width / size.width, maximum.height / size.height))
         size = CGSize(width: (size.width * shrink).rounded(),
                       height: (size.height * shrink).rounded())
 
-        return CGSize(width: max(size.width, 480),
-                      height: max(size.height + chromeHeight, 360))
+        return CGSize(width: max(size.width, 420), height: max(size.height, 300))
     }
 
     /// Whether the user has zoomed past the point where the display-tier proxy
@@ -615,6 +634,7 @@ final class ImageCanvasView: NSView {
             return
         }
         setScale(scale + remaining * 0.30, anchoredAt: zoomAnchor, animated: false)
+        announceZoom(at: zoomAnchor)
     }
 
     private func endSmoothZoom() {
@@ -652,8 +672,9 @@ final class ImageCanvasView: NSView {
             guard steps != 0 else { return }
             // Small per-notch factor, because the easing is what carries the
             // distance rather than the notch itself.
-            zoomSmoothly(by: pow(1.085, steps),
-                         at: convert(event.locationInWindow, from: nil))
+            let pointer = convert(event.locationInWindow, from: nil)
+            zoomSmoothly(by: pow(1.085, steps), at: pointer)
+            announceZoom(at: pointer)
         }
     }
 
@@ -665,8 +686,9 @@ final class ImageCanvasView: NSView {
         endSmoothZoom()
         targetScale = scale
         isFitted = false
-        setScale(scale * (1 + event.magnification),
-                 anchoredAt: convert(event.locationInWindow, from: nil), animated: false)
+        let pointer = convert(event.locationInWindow, from: nil)
+        setScale(scale * (1 + event.magnification), anchoredAt: pointer, animated: false)
+        announceZoom(at: pointer)
     }
 
     override func mouseDown(with event: NSEvent) {

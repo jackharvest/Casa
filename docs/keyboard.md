@@ -25,7 +25,7 @@ impossible to tell you have reached the end of a folder.
 | `0` or `⌘0` | Fit to window |
 | `1` or `⌘1` | Actual size (1 image pixel per *screen* pixel) |
 | `+` / `-` | Zoom about the center |
-| Mouse wheel | Zoom about the pointer, smoothly |
+| Mouse wheel | Zoom about the pointer, smoothly. The percentage appears beside the cursor |
 | `⌃` + wheel | Previous / next image |
 | Trackpad two-finger | Pan |
 | Trackpad pinch | Zoom about the pointer |
