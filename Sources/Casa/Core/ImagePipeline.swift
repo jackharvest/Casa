@@ -315,6 +315,19 @@ actor ImagePipeline {
         return DecodedImage(cgImage: frame, tier: tier, nativePixelSize: native)
     }
 
+    /// Drops everything cached for a URL, because the file on disk changed.
+    /// Rotation rewrites the file, so anything held for it is now wrong.
+    func forget(_ url: URL) {
+        if sharp?.url == url { sharp = nil }
+        removePreview(url)
+        strips.removeValue(forKey: url)
+        stripOrder.removeAll { $0 == url }
+        for (key, task) in inFlight where key.url == url {
+            task.cancel()
+            inFlight[key] = nil
+        }
+    }
+
     /// Approximate resident bitmap bytes, for the debug readout.
     var memoryFootprint: Int {
         (sharp?.image.byteCost ?? 0)

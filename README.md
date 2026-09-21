@@ -34,6 +34,16 @@ where you are.
 <img src="docs/assets/filmstrip.png" alt="The thumbnail rail, centred on the current image" width="90%">
 </div>
 
+## Two ways to look
+
+Casa opens filling the screen with the desktop dimmed behind it. Click the empty
+space beside the photo and it drops into an ordinary window hugging the image,
+rail and all. Click the surround again to go back.
+
+<div align="center">
+<img src="docs/assets/windowed.png" alt="Casa in windowed mode, the window hugging the photo" width="56%">
+</div>
+
 ## It follows Finder's sort order
 
 No other Mac viewer does this. Sort a folder by date added, open the third
@@ -88,12 +98,13 @@ One setting in **View › Playback**: Click to Play (default), Play Automaticall
 | `Home` / `End` | First / last |
 | `Space` | Play, or next if there's nothing to play |
 | `0` / `1` | Fit to window / actual size |
-| Mouse wheel | Zoom to the pointer |
+| Mouse wheel | Zoom to the pointer, smoothly |
+| `⌃` + wheel | Previous / next |
 | Trackpad scroll / pinch | Pan / zoom |
 | Double-click | Fit or 1:1, anchored where you clicked |
-| Click beside the photo | Close |
+| Click beside the photo | Switch between full-screen and a window |
 | `⌘C` / `⌥⌘C` / `⌘R` | Copy image / copy path / reveal in Finder |
-| `⇧⌘[` `⇧⌘]` | Rotate |
+| `⇧⌘[` `⇧⌘]` | Rotate, saved to the file |
 | `⇧⌘D` | Hide the Dock for a bigger picture |
 | `Esc` | Close |
 

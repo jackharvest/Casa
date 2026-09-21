@@ -31,6 +31,8 @@ final class Session {
     /// Fired once per navigation with the best rung that reached the screen,
     /// or `nil` when the file could not be displayed at all.
     var onPaint: ((DecodeTier?) -> Void)?
+    /// Fired when a rotation could not be written.
+    var onRotationFailed: ((String) -> Void)?
     /// Fired when a file cannot be displayed, so the chrome can say so.
     var onUnreadable: ((URL) -> Void)?
 
@@ -49,6 +51,7 @@ final class Session {
     // MARK: - Opening
 
     func open(_ rawURL: URL) {
+        commitRotation()
         // Normalize once, here, and never think about path identity again.
         //
         // A URL arrives from Finder or the command line as `/tmp/photo.jpg`
@@ -101,6 +104,7 @@ final class Session {
 
     func go(to newIndex: Int) {
         guard urls.indices.contains(newIndex) else { return }
+        commitRotation()
         index = newIndex
         generation += 1
         loadCurrent(generation: generation, isFirstPaint: false)
@@ -171,6 +175,57 @@ final class Session {
         sortOrder = order
         sortAscending = ascending
         rescan(preserving: current, generation: generation)
+    }
+
+    // MARK: - Rotation
+
+    /// The rotation the user has applied but not yet committed.
+    ///
+    /// Held rather than written per keypress: turning a photo four times should
+    /// cost one write, not four, and writing while someone is still deciding
+    /// which way up it goes is the wrong moment.
+    private var pendingRotation: (url: URL, turns: Int)?
+
+    func noteRotation(_ turns: Int) {
+        guard let url = currentURL else { return }
+        if let pending = pendingRotation, pending.url == url {
+            pendingRotation = (url, pending.turns + turns)
+        } else {
+            commitRotation()
+            pendingRotation = (url, turns)
+        }
+    }
+
+    /// Writes the pending rotation to disk. Called on navigation and on close,
+    /// which is exactly when Picasa committed one.
+    func commitRotation() {
+        guard let pending = pendingRotation else { return }
+        pendingRotation = nil
+
+        let turns = ((pending.turns % 4) + 4) % 4
+        guard turns != 0 else { return }
+
+        let url = pending.url
+        Task { [weak self] in
+            let failure: String? = await Task.detached(priority: .userInitiated) {
+                do {
+                    try ImageRotator.apply(quarterTurns: turns, to: url)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+
+            guard let self else { return }
+            if let failure {
+                Log.decode.error("rotation not saved: \(failure, privacy: .public)")
+                self.onRotationFailed?(failure)
+            } else {
+                // The file changed underneath us, so anything cached for it is
+                // now the old orientation.
+                await self.pipeline.forget(url)
+            }
+        }
     }
 
     /// Decodes a filmstrip thumbnail. The rail drives this; the pipeline

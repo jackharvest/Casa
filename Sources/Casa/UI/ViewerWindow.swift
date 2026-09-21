@@ -21,6 +21,15 @@ final class ViewerWindow: NSWindow {
     /// Off by default — see `ViewerWindowDelegate`.
     private(set) var hidesDock = false
 
+    /// How the viewer is presented.
+    ///
+    /// Picasa's viewer opened filling the screen and dropped into an ordinary
+    /// window when you clicked beside the photograph. Both are the same window
+    /// with a different style mask, so the photo, the rail and the controls
+    /// never have to be rebuilt.
+    enum Presentation { case fullBleed, windowed }
+    private(set) var presentation: Presentation = .fullBleed
+
     init(screen: NSScreen, hidesDock: Bool) {
         self.hidesDock = hidesDock
         super.init(
@@ -120,12 +129,58 @@ final class ViewerWindow: NSWindow {
     /// content is a legibility problem before it is a preference.
     func applyGround() {
         let opaque = Accommodations.current.reduceTransparency
-        backgroundColor = NSColor(white: 0.06, alpha: opaque ? 1.0 : 0.88)
+        // Picasa's ground was a light veil, not a blackout. At 0.88 the
+        // desktop behind was effectively gone, which reads as a modal sheet
+        // rather than as a viewer floating over your work.
+        backgroundColor = NSColor(white: 0.06, alpha: opaque ? 1.0 : 0.45)
+    }
+
+    /// Switches between full-bleed and a window hugging the photograph.
+    func setPresentation(_ mode: Presentation, contentSize: CGSize) {
+        guard mode != presentation else { return }
+        presentation = mode
+        guard let screen = screen ?? NSScreen.main else { return }
+
+        switch mode {
+        case .windowed:
+            NSApp.presentationOptions = []
+            styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            titlebarAppearsTransparent = false
+            titleVisibility = .visible
+            isMovableByWindowBackground = false
+            hasShadow = true
+            // Opaque in a window: a translucent titled window over the desktop
+            // looks like a rendering fault rather than a choice.
+            isOpaque = true
+            backgroundColor = NSColor(white: 0.10, alpha: 1)
+
+            let visible = screen.visibleFrame
+            let size = CGSize(width: min(contentSize.width, visible.width - 80),
+                              height: min(contentSize.height, visible.height - 80))
+            let rect = NSRect(x: visible.midX - size.width / 2,
+                              y: visible.midY - size.height / 2,
+                              width: size.width, height: size.height)
+            setFrame(frameRect(forContentRect: rect), display: true,
+                     animate: !Accommodations.current.reduceMotion)
+
+        case .fullBleed:
+            styleMask = [.borderless, .resizable]
+            titlebarAppearsTransparent = true
+            titleVisibility = .hidden
+            isMovableByWindowBackground = false
+            hasShadow = false
+            isOpaque = false
+            applyGround()
+            applyScreenFrame(hidingDock: hidesDock)
+        }
+
+        makeFirstResponder(contentViewController?.view.subviews.first { $0 is ImageCanvasView })
     }
 
     /// Resizes for the current Dock preference.
     func applyScreenFrame(hidingDock: Bool) {
         hidesDock = hidingDock
+        guard presentation == .fullBleed else { return }
         guard let screen = screen ?? NSScreen.main else { return }
         NSApp.presentationOptions = hidingDock ? [.autoHideDock, .autoHideMenuBar] : []
         // `visibleFrame` is recomputed after the presentation options change,
@@ -147,7 +202,8 @@ final class ViewerWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         guard let window = notification.object as? ViewerWindow else { return }
-        NSApp.presentationOptions = window.hidesDock ? [.autoHideDock, .autoHideMenuBar] : []
+        NSApp.presentationOptions = window.presentation == .fullBleed && window.hidesDock
+            ? [.autoHideDock, .autoHideMenuBar] : []
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -157,6 +213,12 @@ final class ViewerWindowDelegate: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.presentationOptions = []
+        // Last chance to write a rotation the user applied and never navigated
+        // away from.
+        if let controller = (notification.object as? NSWindow)?.contentViewController
+            as? ViewerController {
+            controller.commitPendingRotation()
+        }
     }
 
     /// Intercepts every close — Escape, ⌘W, the surround click — so they all

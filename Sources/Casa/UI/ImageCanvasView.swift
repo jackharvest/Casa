@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import QuartzCore
 
 /// Displays one image and owns the zoom, pan and rotation interaction.
 ///
@@ -353,8 +354,10 @@ final class ImageCanvasView: NSView {
     }
 
     func fit(animated: Bool) {
+        endSmoothZoom()
         isFitted = true
         scale = fitScale
+        targetScale = fitScale
         center = CGPoint(x: contentRect.midX, y: contentRect.midY)
         applyGeometry(animated: animated)
         notifyZoom()
@@ -363,8 +366,10 @@ final class ImageCanvasView: NSView {
     /// One image pixel per *screen* pixel — which on a Retina display is half
     /// the point size. That is the honest reading of "actual size" for a photo.
     func actualSize(animated: Bool) {
+        endSmoothZoom()
         isFitted = false
-        setScale(1 / backingScale, anchoredAt: CGPoint(x: bounds.midX, y: bounds.midY), animated: animated)
+        targetScale = 1 / backingScale
+        setScale(targetScale, anchoredAt: CGPoint(x: bounds.midX, y: bounds.midY), animated: animated)
     }
 
     // MARK: - Zoom
@@ -390,9 +395,13 @@ final class ImageCanvasView: NSView {
         notifyZoom()
     }
 
+    /// Stepped zoom, for the keyboard and the chrome buttons. Anchored on the
+    /// centre, which is what those controls imply.
     func zoom(by factor: CGFloat, at anchor: CGPoint) {
+        endSmoothZoom()
         isFitted = false
-        setScale(scale * factor, anchoredAt: anchor, animated: false)
+        targetScale = scale * factor
+        setScale(targetScale, anchoredAt: anchor, animated: !accommodations.reduceMotion)
     }
 
     /// Toggles fit ⇄ 1:1 anchored where the user clicked, so double-clicking a
@@ -436,24 +445,32 @@ final class ImageCanvasView: NSView {
         let size = displayedSize
         var result = center
 
-        // When an axis fits, settle on the free area's centre so the
-        // composition stays balanced against the chrome. When it overflows,
-        // pan against the window — the user is inspecting, and letting the
-        // image travel under the rail is correct there.
+        // Two different rules, because they answer two different questions.
+        //
+        // When the photograph fits, dragging it is *aiming*: Picasa let you
+        // put a fitted photo wherever you liked and left it there, because you
+        // were almost certainly about to zoom into that spot. Snapping it back
+        // to the middle fights the user. The only limit is that a sensible
+        // fraction has to stay on screen.
+        //
+        // When it overflows, dragging is *inspecting*, and the edges should
+        // stop where the picture stops.
+        let keptOnScreen: CGFloat = 0.30
+
         if size.width <= bounds.width {
-            result.x = contentRect.midX
+            let margin = size.width * keptOnScreen
+            result.x = min(max(result.x, margin - size.width / 2),
+                           bounds.width - margin + size.width / 2)
         } else {
-            let minCenterX = bounds.width - size.width / 2
-            let maxCenterX = size.width / 2
-            result.x = min(max(result.x, minCenterX), maxCenterX)
+            result.x = min(max(result.x, bounds.width - size.width / 2), size.width / 2)
         }
 
         if size.height <= bounds.height {
-            result.y = contentRect.midY
+            let margin = size.height * keptOnScreen
+            result.y = min(max(result.y, margin - size.height / 2),
+                           bounds.height - margin + size.height / 2)
         } else {
-            let minCenterY = bounds.height - size.height / 2
-            let maxCenterY = size.height / 2
-            result.y = min(max(result.y, minCenterY), maxCenterY)
+            result.y = min(max(result.y, bounds.height - size.height / 2), size.height / 2)
         }
         return result
     }
@@ -502,6 +519,32 @@ final class ImageCanvasView: NSView {
         delegate?.canvas(self, didChangeZoomTo: scale, isFitted: isFitted)
     }
 
+    /// The content size a window should take to hug this photograph.
+    ///
+    /// Capped to a sensible share of the screen: a 6016 px photo would
+    /// otherwise ask for a window nobody has a display for.
+    func preferredWindowedContentSize(maximum: CGSize) -> CGSize {
+        guard imagePixelSize.width > 0, imagePixelSize.height > 0 else {
+            return CGSize(width: min(960, maximum.width), height: min(680, maximum.height))
+        }
+        let rotated = quarterTurns % 2 == 0
+            ? imagePixelSize
+            : CGSize(width: imagePixelSize.height, height: imagePixelSize.width)
+
+        // Points, not pixels: a Retina display shows a 4000 px photo in 2000
+        // points, and the window is measured in points.
+        var size = CGSize(width: rotated.width / backingScale, height: rotated.height / backingScale)
+
+        let chromeHeight = contentInsets.top + contentInsets.bottom
+        let room = CGSize(width: maximum.width, height: max(maximum.height - chromeHeight, 200))
+        let shrink = min(1, min(room.width / size.width, room.height / size.height))
+        size = CGSize(width: (size.width * shrink).rounded(),
+                      height: (size.height * shrink).rounded())
+
+        return CGSize(width: max(size.width, 480),
+                      height: max(size.height + chromeHeight, 360))
+    }
+
     /// Whether the user has zoomed past the point where the display-tier proxy
     /// visibly softens, making a full decode worth its memory.
     var needsFullResolution: Bool {
@@ -528,9 +571,76 @@ final class ImageCanvasView: NSView {
         updateFilters()
     }
 
+    // MARK: - Smooth zoom
+
+    /// Where the zoom is heading. The wheel moves this; a display link walks
+    /// `scale` toward it.
+    private var targetScale: CGFloat = 1
+    private var zoomAnchor: CGPoint = .zero
+    private var zoomLink: CADisplayLink?
+
+    /// Picasa's zoom was continuous, not stepped once per wheel click, and that
+    /// is most of why it felt better than everything else. Each notch nudges a
+    /// target and the view eases toward it every frame, so a flick of the wheel
+    /// reads as one smooth movement instead of a stack of jumps.
+    private func zoomSmoothly(by factor: CGFloat, at anchor: CGPoint) {
+        guard imagePixelSize.width > 0 else { return }
+
+        // A gesture that has settled starts again from where the view actually
+        // is, not from a stale target.
+        if zoomLink == nil { targetScale = scale }
+
+        targetScale = min(max(targetScale * factor, minScale), maxScale)
+        zoomAnchor = anchor
+        isFitted = false
+
+        guard !accommodations.reduceMotion else {
+            setScale(targetScale, anchoredAt: anchor, animated: false)
+            return
+        }
+
+        if zoomLink == nil {
+            let link = displayLink(target: self, selector: #selector(stepZoom))
+            link.add(to: .main, forMode: .common)
+            zoomLink = link
+        }
+    }
+
+    @objc private func stepZoom() {
+        let remaining = targetScale - scale
+        // Close enough: land exactly and stop, rather than easing forever.
+        guard abs(remaining) > scale * 0.002 else {
+            setScale(targetScale, anchoredAt: zoomAnchor, animated: false)
+            endSmoothZoom()
+            return
+        }
+        setScale(scale + remaining * 0.30, anchoredAt: zoomAnchor, animated: false)
+    }
+
+    private func endSmoothZoom() {
+        zoomLink?.invalidate()
+        zoomLink = nil
+    }
+
     // MARK: - Events
 
     override func scrollWheel(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Control plus wheel walks the folder. Picasa did this, and it means
+        // you can browse and zoom without moving your hand.
+        if modifiers.contains(.control) {
+            let delta = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
+                ? event.scrollingDeltaY : event.scrollingDeltaX
+            navigationAccumulator += delta
+            let threshold: CGFloat = event.hasPreciseScrollingDeltas ? 28 : 1
+            let steps = Int((navigationAccumulator / threshold).rounded(.towardZero))
+            guard steps != 0 else { return }
+            navigationAccumulator -= CGFloat(steps) * threshold
+            delegate?.canvas(self, requestsStep: -steps)
+            return
+        }
+
         // A mouse wheel and a trackpad are different instruments and must not
         // map to the same gesture. Precise deltas mean a trackpad, where
         // two-finger scroll universally means pan on macOS; coarse deltas mean
@@ -540,13 +650,23 @@ final class ImageCanvasView: NSView {
         } else {
             let steps = event.scrollingDeltaY
             guard steps != 0 else { return }
-            zoom(by: pow(1.12, steps), at: convert(event.locationInWindow, from: nil))
+            // Small per-notch factor, because the easing is what carries the
+            // distance rather than the notch itself.
+            zoomSmoothly(by: pow(1.085, steps),
+                         at: convert(event.locationInWindow, from: nil))
         }
     }
 
+    private var navigationAccumulator: CGFloat = 0
+
     override func magnify(with event: NSEvent) {
         guard event.magnification != 0 else { return }
-        zoom(by: 1 + event.magnification, at: convert(event.locationInWindow, from: nil))
+        // A pinch is already continuous, so it goes straight in.
+        endSmoothZoom()
+        targetScale = scale
+        isFitted = false
+        setScale(scale * (1 + event.magnification),
+                 anchoredAt: convert(event.locationInWindow, from: nil), animated: false)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -566,7 +686,7 @@ final class ImageCanvasView: NSView {
         // for the thumbnail rail and missing by a few pixels should not have
         // the window close on them.
         if isPointInDismissableSurround(point) {
-            delegate?.canvasDidRequestDismiss(self)
+            delegate?.canvasDidRequestWindowedToggle(self)
             return
         }
 
@@ -617,8 +737,12 @@ final class ImageCanvasView: NSView {
 
 @MainActor
 protocol ImageCanvasDelegate: AnyObject {
-    /// The user clicked the ground beside the photograph.
-    func canvasDidRequestDismiss(_ canvas: ImageCanvasView)
+    /// Control-scroll: walk the folder without leaving the wheel.
+    func canvas(_ canvas: ImageCanvasView, requestsStep offset: Int)
+
+    /// The user clicked the ground beside the photograph. Picasa took that as
+    /// "put this in a window", not "close it".
+    func canvasDidRequestWindowedToggle(_ canvas: ImageCanvasView)
     func canvas(_ canvas: ImageCanvasView, didChangeZoomTo scale: CGFloat, isFitted: Bool)
     func canvasDidChangeBackingScale(_ canvas: ImageCanvasView, to scale: CGFloat)
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView)

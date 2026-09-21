@@ -25,12 +25,17 @@ impossible to tell you have reached the end of a folder.
 | `0` or `⌘0` | Fit to window |
 | `1` or `⌘1` | Actual size (1 image pixel per *screen* pixel) |
 | `+` / `-` | Zoom about the center |
-| Mouse wheel | Zoom about the pointer |
+| Mouse wheel | Zoom about the pointer, smoothly |
+| `⌃` + wheel | Previous / next image |
 | Trackpad two-finger | Pan |
 | Trackpad pinch | Zoom about the pointer |
 | Double-click | Toggle fit ⇄ 1:1, anchored where you clicked |
 | Drag | Pan |
-| Click the surround | Dismiss — same as Escape |
+| Click the surround | Switch between full-screen and a window hugging the photo |
+
+Dragging a photo that already fits moves it and leaves it there, rather than
+snapping back to the middle. Picasa did this because you are usually lining up
+a zoom.
 
 A mouse wheel and a trackpad are different instruments and are deliberately not
 mapped to the same gesture — `NSEvent.hasPreciseScrollingDeltas` tells them
@@ -50,5 +55,6 @@ to anyone who used Picasa.
 | Key | Action |
 |---|---|
 | `Esc` or `⌘W` | Close |
-| `⇧⌘[` / `⇧⌘]` | Rotate left / right (display only, not written to the file) |
+| The X, top right | Close |
+| `⇧⌘[` / `⇧⌘]` | Rotate left / right. Written to the file when you move on, losslessly where the format has an orientation tag |
 | `⌘Q` | Quit |

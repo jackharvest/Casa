@@ -1,4 +1,6 @@
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Runtime assertions over the arithmetic that is easy to break and hard to
 /// notice: version ordering, zoom anchoring, and the dismiss surround.
@@ -35,10 +37,12 @@ enum SelfCheck {
         checkVersions()
         print("\nzoom anchoring")
         checkZoomAnchoring()
-        print("\ndismiss surround")
+        print("\nsurround regions")
         checkDismissSurround()
         print("\ndigest")
         checkDigest()
+        print("\nrotation")
+        checkRotation()
 
         print("")
         if failures.isEmpty {
@@ -106,6 +110,8 @@ enum SelfCheck {
 
     // MARK: - Surround
 
+    /// The surround is what switches to windowed mode, so the regions matter
+    /// as much as when it dismissed.
     private static func checkDismissSurround() {
         let canvas = ImageCanvasView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
         canvas.contentInsets = NSEdgeInsets(top: 60, left: 10, bottom: 120, right: 10)
@@ -117,16 +123,16 @@ enum SelfCheck {
         expect(image.width < 1000, "a tall image leaves horizontal surround")
 
         expect(canvas.isPointInDismissableSurround(CGPoint(x: 20, y: 400)),
-               "the left margin dismisses")
+               "the left margin is surround")
         expect(canvas.isPointInDismissableSurround(CGPoint(x: 980, y: 400)),
-               "the right margin dismisses")
+               "the right margin is surround")
         expect(!canvas.isPointInDismissableSurround(CGPoint(x: image.midX, y: image.midY)),
-               "the photograph itself does not dismiss")
+               "the photograph itself is not surround")
         // Someone aiming for the rail and missing must not close the window.
         expect(!canvas.isPointInDismissableSurround(CGPoint(x: 500, y: 760)),
-               "the bottom chrome band does not dismiss")
+               "the bottom chrome band is not surround")
         expect(!canvas.isPointInDismissableSurround(CGPoint(x: 500, y: 20)),
-               "the top chrome band does not dismiss")
+               "the top chrome band is not surround")
     }
 
     // MARK: - Digest
@@ -143,6 +149,56 @@ enum SelfCheck {
         expect(actual == expected, "SHA-256 of \"abc\" matches the published digest")
 
         expect(UpdateSecurity.isConfigured, "an update signing key is embedded")
+    }
+
+    // MARK: - Rotation
+
+    /// Round-trips a rotation through a real file.
+    ///
+    /// Worth a test because it is the only thing Casa writes. A bug here
+    /// damages the user's photograph rather than just looking wrong.
+    private static func checkRotation() {
+        let directory = FileManager.default.temporaryDirectory
+        let file = directory.appendingPathComponent("casa-rotate-\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        // A real JPEG, written through ImageIO so it has proper metadata.
+        let image = solidImage(width: 200, height: 120).cgImage
+        guard let destination = CGImageDestinationCreateWithURL(
+            file as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else {
+            expect(false, "could not create a test JPEG")
+            return
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            expect(false, "could not write a test JPEG")
+            return
+        }
+
+        let sizeBefore = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? Int) ?? 0
+        expect(ImageRotator.orientation(of: file) == 1, "a fresh JPEG starts at orientation 1")
+        expect(ImageRotator.canRotate(file), "a writable JPEG can be rotated")
+
+        do {
+            try ImageRotator.apply(quarterTurns: 1, to: file)
+        } catch {
+            expect(false, "one turn clockwise: \(error.localizedDescription)")
+            return
+        }
+        expect(ImageRotator.orientation(of: file) == 6, "one turn clockwise gives orientation 6")
+
+        // Three more turns must come back to where it started.
+        try? ImageRotator.apply(quarterTurns: 3, to: file)
+        expect(ImageRotator.orientation(of: file) == 1, "four turns returns to orientation 1")
+
+        let sizeAfter = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? Int) ?? 0
+        // Only the metadata is rewritten, so four rotations must not
+        // meaningfully change the file. A re-encode would move this a lot.
+        let drift = abs(sizeAfter - sizeBefore)
+        expect(drift < max(2048, sizeBefore / 20),
+               "four rotations are lossless (drift \(drift) bytes of \(sizeBefore))")
+
+        expect(ImageSource.probe(file) != nil, "the rotated file still decodes")
     }
 
     // MARK: - Helpers

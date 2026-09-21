@@ -22,6 +22,7 @@ final class ChromeView: NSView {
     private var stack: NSStackView!
     let filmstrip = FilmstripView(frame: .zero)
     private var playButton: IconButton!
+    private var closeButton: IconButton!
     private var idleTimer: Timer?
     private var isChromeVisible = true
 
@@ -72,6 +73,16 @@ final class ChromeView: NSView {
         playButton.isHidden = true
         addSubview(playButton)
 
+        // The translucent X in the corner. Picasa had one and almost nobody
+        // knew, which is the point: Escape is the fast way out, and this is
+        // for people who reach for a close button because every other window
+        // has one.
+        closeButton = IconButton(symbol: "xmark", role: .title, label: "Close",
+                                 keyEquivalentHint: "Esc",
+                                 action: #selector(ViewerController.dismissViewer(_:)),
+                                 target: target)
+        addSubview(closeButton)
+
         installConstraints()
         applyMetrics()
     }
@@ -111,6 +122,10 @@ final class ChromeView: NSView {
 
             playButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             playButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.spacing(2)),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor,
+                                                  constant: -Metrics.spacing(2)),
         ])
 
         filenameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -148,6 +163,9 @@ final class ChromeView: NSView {
 
         for button in buttons { button.refreshForEnvironment() }
         playButton.refreshForEnvironment()
+        closeButton.refreshForEnvironment()
+        // Deliberately faint. It should be findable, not prominent.
+        closeButton.alphaValue = 0.55
         filmstrip.environmentChanged()
 
         stack.wantsLayer = true
@@ -229,6 +247,7 @@ final class ChromeView: NSView {
         if !playButton.isHidden, let hit = playButton.hitTest(convert(point, to: playButton)) {
             return hit
         }
+        if let hit = closeButton.hitTest(convert(point, to: closeButton)) { return hit }
         let hit = super.hitTest(point)
         if hit is IconButton { return hit }
         // The rail is interactive too: click to jump, scroll to scrub.

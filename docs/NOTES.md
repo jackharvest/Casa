@@ -136,6 +136,41 @@ bundle or its parent is not writable, which is checked *before* offering the
 update rather than after a download. A privileged install (`/Applications`
 owned by root) would need `SMJobBless` or an admin prompt and is not built.
 
+## 2g. Matching the original's feel
+
+Eight behaviours from the real Picasa viewer, added in 0.8.0. Worth recording
+because several are non-obvious and easy to regress:
+
+- **Smooth zoom.** A `CADisplayLink` walks `scale` toward `targetScale` each
+  frame rather than applying a jump per wheel notch. The notch factor is small
+  (1.085) because the easing carries the distance.
+- **Zoom anchors on the pointer** for the wheel, on the centre for the keyboard
+  and the chrome buttons. Those controls imply the centre.
+- **⌃ + wheel walks the folder.** Accumulated so one notch is one image on a
+  mouse and a swipe is one image on a trackpad.
+- **Free panning when fitted.** `constrainedCenter` no longer snaps a fitted
+  image back to the middle; it keeps 30% on screen and otherwise leaves it
+  where you put it, because you are usually lining up a zoom. When the image
+  overflows it reverts to the classic edge clamp.
+- **The surround switches to windowed**, it does not dismiss. Same window, new
+  style mask, so nothing is rebuilt. The rail is already inside the content
+  view, so it lands inside the window for free.
+- **A faint X, top right**, at 0.55 alpha. Picasa had one and almost nobody
+  knew.
+- **The ground is 0.45, not 0.88.** At 0.88 the desktop was effectively gone,
+  which reads as a modal sheet.
+- **Rotation writes to the file.** `ImageRotator` rewrites only the EXIF
+  orientation tag via `CGImageDestinationAddImageFromSource`, so it is lossless
+  on JPEG and HEIC; the self-check proves it with a four-turn round trip that
+  drifts 24 bytes on a 1143-byte file. Writes happen on navigation and on close,
+  not per keypress, and the pipeline forgets the URL afterwards because the file
+  on disk changed.
+
+**Careful with `--args` and relative paths.** A launched app's working directory
+is `/`, so `open -a Casa --args foo/bar.jpg` silently fails to find the file and
+the viewer correctly reports that it cannot display it. Always pass absolute
+paths when testing.
+
 ## 2f. Liquid Glass
 
 `UI/Glass.swift` wraps `NSGlassEffectView` (macOS 26+) with an

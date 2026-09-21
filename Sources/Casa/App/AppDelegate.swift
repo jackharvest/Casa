@@ -220,6 +220,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.window = window
         self.controller = controller
         scheduleScreenMigrationTestIfRequested(window)
+
+        // `--windowed` drops into the hugging window shortly after launch, for
+        // screenshots and for checking the mode without clicking.
+        if CommandLine.arguments.contains("--windowed") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak controller] in
+                guard let controller else { return }
+                controller.toggleWindowedPresentation()
+            }
+        }
     }
 
     /// `--migrate-screens a,b` opens on display *a*, then moves to display *b*.

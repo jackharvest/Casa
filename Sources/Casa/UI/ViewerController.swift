@@ -52,6 +52,13 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         session.onChange = { [weak self] session in
             self?.refreshChrome(for: session)
         }
+        session.onRotationFailed = { [weak self] message in
+            guard let self, let url = self.session.currentURL else { return }
+            self.chrome.update(filename: url.lastPathComponent,
+                               position: self.session.positionDescription,
+                               note: message)
+            self.chrome.flash()
+        }
         session.onUnreadable = { [weak self] url in
             guard let self else { return }
             self.chrome.update(filename: url.lastPathComponent,
@@ -82,6 +89,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     }
 
     // MARK: - Public entry
+
+    /// Writes any rotation the user applied but hasn't navigated away from.
+    func commitPendingRotation() { session?.commitRotation() }
 
     /// The photograph currently on screen, for the updater's relaunch.
     var currentFile: URL? { session?.currentURL }
@@ -140,6 +150,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     }
 
     private func refreshChrome(for session: Session) {
+        if let window = view.window as? ViewerWindow, window.presentation == .windowed {
+            window.title = session.currentURL?.lastPathComponent ?? "Casa"
+        }
         chrome.updatePlayback(canPlay: canvas.playable != .none, isPlaying: canvas.isPlaying)
         chrome.update(
             filename: session.currentURL?.lastPathComponent ?? "",
@@ -177,8 +190,20 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     @objc func goPrevious(_ sender: Any?) { session.advance(by: -1) }
     @objc func zoomToFit(_ sender: Any?) { canvas.fit(animated: true) }
     @objc func zoomToActual(_ sender: Any?) { canvas.actualSize(animated: true) }
-    @objc func rotateLeft(_ sender: Any?) { canvas.rotate(by: -1) }
-    @objc func rotateRight(_ sender: Any?) { canvas.rotate(by: 1) }
+    @objc func rotateLeft(_ sender: Any?) { rotate(by: -1) }
+    @objc func rotateRight(_ sender: Any?) { rotate(by: 1) }
+
+    /// Turns the picture on screen and records the turn. The write happens when
+    /// the user moves on, which is when Picasa committed one too.
+    private func rotate(by turns: Int) {
+        canvas.rotate(by: turns)
+        session.noteRotation(turns)
+        guard let url = session.currentURL, !ImageRotator.canRotate(url) else { return }
+        chrome.update(filename: url.lastPathComponent,
+                      position: session.positionDescription,
+                      note: "Rotation won't be saved for this file")
+        chrome.flash()
+    }
     @objc func dismissViewer(_ sender: Any?) { dismissWindow() }
 
     /// Play or pause the current animation or video.
@@ -366,8 +391,25 @@ extension ViewerController: ImageCanvasDelegate {
         session?.refreshForResolutionChange()
     }
 
-    func canvasDidRequestDismiss(_ canvas: ImageCanvasView) {
-        dismissWindow()
+    func canvas(_ canvas: ImageCanvasView, requestsStep offset: Int) {
+        session.advance(by: offset)
+    }
+
+    /// Public entry so the debug flag can drive it too.
+    func toggleWindowedPresentation() { canvasDidRequestWindowedToggle(canvas) }
+
+    func canvasDidRequestWindowedToggle(_ canvas: ImageCanvasView) {
+        guard let window = view.window as? ViewerWindow else { return }
+        let screen = window.screen ?? NSScreen.main
+        let room = screen.map { CGSize(width: $0.visibleFrame.width * 0.86,
+                                       height: $0.visibleFrame.height * 0.86) }
+            ?? CGSize(width: 1200, height: 800)
+
+        let next: ViewerWindow.Presentation = window.presentation == .fullBleed ? .windowed : .fullBleed
+        window.setPresentation(next, contentSize: canvas.preferredWindowedContentSize(maximum: room))
+        window.title = session.currentURL?.lastPathComponent ?? "Casa"
+        // The free-pan offset belongs to the old geometry.
+        canvas.fit(animated: !Accommodations.current.reduceMotion)
     }
 
     /// Goes through `performClose` rather than `close` so the window delegate
