@@ -50,6 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Files passed on the command line, for development and for `open -a`.
         if let first = positional.first {
             present(URL(fileURLWithPath: first))
+        } else if window == nil {
+            // Launched without a photo. An empty viewer would be pointless —
+            // this app's job starts with a double-click — so the useful thing
+            // to show is how to become the app that receives them.
+            welcome.present()
         }
 
         configureUpdates()
@@ -112,6 +117,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    // MARK: - Welcome
+
+    private lazy var welcome: WelcomeWindowController = {
+        let controller = WelcomeWindowController()
+        controller.onOpen = { [weak self] url in self?.present(url) }
+        return controller
+    }()
+
+    @objc func showWelcome(_ sender: Any?) {
+        welcome.present()
+    }
+
+    /// Clicking the Dock icon with nothing open, or launching bare.
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { true }
+
+    func applicationOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        // A viewer already on screen means the user has a photo open; do not
+        // shove a welcome window in front of it.
+        if let window, window.isVisible { return false }
+        welcome.present()
+        return true
+    }
+
     // MARK: - Presentation
 
     /// The display the photo was opened from.
@@ -150,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let screen = invokingScreen()
 
         if let controller, let window {
+            welcome.close()
             // Follow the user to the display they invoked this from. Opening a
             // photo on the laptop screen when they double-clicked it on the
             // external monitor is exactly the kind of thing that makes an app
@@ -163,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
+        welcome.close()
         LaunchClock.mark("present-begin")
         let window = ViewerWindow(screen: screen, hidesDock: Preferences.hidesDock)
         let controller = ViewerController()

@@ -32,6 +32,7 @@ enum MenuBuilder {
         let name = ProcessInfo.processInfo.processName
         let menu = NSMenu(title: name)
         add(to: menu, "About \(name)", #selector(AppDelegate.showAbout(_:)), "", [])
+        add(to: menu, "Welcome to \(name)", #selector(AppDelegate.showWelcome(_:)), "", [])
         menu.addItem(.separator())
         add(to: menu, "Check for Updates\u{2026}", #selector(AppDelegate.checkForUpdates(_:)), "", [])
         add(to: menu, "Check Automatically", #selector(AppDelegate.toggleAutomaticUpdates(_:)), "", [])

@@ -11,3 +11,6 @@ build/
 *.p12
 *.pem
 private/
+
+# Generated from Scripts/IconTools — no binary master in the repo
+Resources/Casa.icns

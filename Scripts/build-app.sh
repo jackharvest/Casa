@@ -36,6 +36,14 @@ sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILD__/$BUILD/g" \
     "$ROOT/Resources/Info.plist" > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# The icon is drawn procedurally rather than committed as a binary master, so
+# generate it on demand the first time it is needed.
+if [ ! -f "$ROOT/Resources/Casa.icns" ]; then
+    echo "==> generating icon"
+    "$ROOT/Scripts/make-icon.sh" >/dev/null
+fi
+cp "$ROOT/Resources/Casa.icns" "$APP/Contents/Resources/Casa.icns"
+
 # Ad-hoc signature. Unsigned bundles are refused outright by recent macOS when
 # launched from Finder; ad-hoc is enough for local use and for Launch Services
 # to register the document types.

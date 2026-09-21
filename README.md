@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/icon.png" alt="Casa" width="148">
+
 # Casa
 
 **A fast, chromeless photo viewer for macOS.**
@@ -122,13 +124,30 @@ Full map in [`docs/keyboard.md`](docs/keyboard.md).
 
 ## Install
 
-Download the latest `Casa-x.y.z.zip` from
-[Releases](https://github.com/jackharvest/Casa/releases), unzip, and drag
-`Casa.app` wherever you keep apps. It updates itself from then on.
+Download **`Casa-x.y.z.dmg`** from
+[Releases](https://github.com/jackharvest/Casa/releases), mount it, and drag
+Casa into Applications.
 
-To make it your default viewer: right-click any image → Get Info → Open with →
-Casa → Change All. Casa registers itself as an *alternate* handler rather than
-seizing every image on the machine, so this is opt-in.
+<div align="center">
+<img src="docs/assets/dmg.png" alt="The Casa disk image, with Casa and an Applications alias" width="72%">
+</div>
+
+Then launch it once. Casa is an app whose job begins when you double-click a
+photo, so a bare launch shows you the one thing worth doing first — claiming
+the file types, with whatever currently owns them shown beside each group:
+
+<div align="center">
+<img src="docs/assets/welcome.png" alt="Casa's welcome window, offering to become the default handler" width="66%">
+</div>
+
+Casa ships registered as an *alternate* handler rather than seizing every image
+on the machine, so this is entirely opt-in — and PDF is unchecked by default,
+because you probably do want Preview for documents.
+
+If macOS declines to change a default, Casa says so and tells you the manual
+route (Get Info → Open with → Change All) rather than pretending it worked.
+
+The `.zip` alongside the `.dmg` is what the updater installs; you don't need it.
 
 ## Build
 
@@ -171,10 +190,15 @@ Debug flags: `--bench <n>`, `--selftest <dir>`, `--selfcheck`, `--keep-chrome`,
 
 ```sh
 Scripts/keygen.sh                     # once — generates the signing key
-echo 0.4.0 > VERSION
-Scripts/release.sh --dry-run          # build, package, sign; publish nothing
+echo 0.6.0 > VERSION
+Scripts/release.sh --dry-run          # build, icon, package, sign, DMG; publish nothing
 Scripts/release.sh
 ```
+
+The icon is drawn procedurally by `Scripts/IconTools/MakeIcon.swift` — a
+superellipse tray and eight multiply-blended blades — so there is no binary
+master to keep in sync. `Scripts/make-icon.sh` renders all ten sizes and builds
+the `.icns`; the DMG background is generated the same way.
 
 `VERSION` is the single source of truth, stamped into `Info.plist` at build
 time; the build number is the commit count.

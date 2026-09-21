@@ -136,6 +136,40 @@ bundle or its parent is not writable, which is checked *before* offering the
 update rather than after a download. A privileged install (`/Applications`
 owned by root) would need `SMJobBless` or an admin prompt and is not built.
 
+## 2d. Icon, DMG, and the welcome screen
+
+**The icon is code**, not a file: `Scripts/IconTools/MakeIcon.swift` draws a
+superellipse tray (`n = 5`, which is much closer to Apple's continuous-curvature
+corners than a plain rounded rect) and eight multiply-blended blades fanned from
+a pivot at 30%/13% of the well. `Scripts/make-icon.sh` renders all ten sizes and
+runs `iconutil`. `Resources/Casa.icns` is gitignored and generated on demand by
+`build-app.sh`.
+
+Three things carried most of the likeness to the reference, in order: making the
+blades wide enough to genuinely overlap (the overlap *is* the effect), a
+two-tone edge so individual blades stay readable where three of them cross, and
+uneven angles and lengths — evenly spaced equal blades read as a pie chart.
+
+**The DMG** is built by `Scripts/make-dmg.sh`: staging directory, read-write
+image, Finder driven over AppleScript to set the window and icon positions,
+then converted to compressed read-only. Two traps, both hit:
+
+- AppleScript `bounds` is `{left, top, right, bottom}`, **not**
+  `{x, y, width, height}`. Passing the size directly makes a window far too
+  small and the icon positions land outside it.
+- The window *content* area is ~28 px shorter than the frame, so background
+  artwork below roughly 0.19 of the height is clipped by Finder's chrome.
+
+It needs Automation permission for Finder on the machine cutting the release.
+
+**The welcome screen** (`UI/WelcomeWindowController.swift`) is what a bare
+launch shows. `Core/DefaultHandler.swift` reads the current handler per group
+via `NSWorkspace.urlForApplication(toOpen:)` and claims types with
+`NSWorkspace.setDefaultApplication(at:toOpen:)` — note the label is `toOpen:`,
+not `toOpenContentType:` as the older documentation suggests. There is **no**
+System Settings pane for per-type image handlers, so the fallback explains
+Finder's Get Info route rather than opening a pane that cannot help.
+
 ## 2c. Regenerating README media
 
 ```sh
