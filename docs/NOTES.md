@@ -136,6 +136,27 @@ bundle or its parent is not writable, which is checked *before* offering the
 update rather than after a download. A privileged install (`/Applications`
 owned by root) would need `SMJobBless` or an admin prompt and is not built.
 
+## 2f. Liquid Glass
+
+`UI/Glass.swift` wraps `NSGlassEffectView` (macOS 26+) with an
+`NSVisualEffectView` fallback, so nothing else in the UI has an availability
+check in it. The settings window puts the sidebar and every card inside one
+`NSGlassEffectContainerView` so neighbouring panels merge instead of each
+drawing an isolated frosted rectangle.
+
+Two things that cost time:
+
+- **A hidden view still participates in Auto Layout.** All four panes were
+  installed and hidden, so the tallest one dictated the window height on every
+  tab. Panes are now added to and removed from the hierarchy.
+- **`widthTracksTextView` only narrows the container to the text view's own
+  frame**, and that frame does not reliably follow a clip view sized by Auto
+  Layout. Long lines were clipped rather than wrapped. `syncNotesWidth()` sets
+  the container from the scroll view's real width after layout.
+
+The window resizes to fit each pane, which is why the panes' stacks are kept in
+`paneStacks`.
+
 ## 2e. Release notes style
 
 Short. Bullets. What changed, not why or how. No implementation philosophy in a

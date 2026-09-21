@@ -23,6 +23,7 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let notesView = NSTextView()
     private let notesScroll = NSScrollView()
+    private var notesCard: NSView!
     private let progressBar = NSProgressIndicator()
     private let progressLabel = NSTextField(labelWithString: "")
     private let buttonRow = NSStackView()
@@ -82,8 +83,9 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
 
+        // Same ground as the settings window, so the two read as one app.
         let material = NSVisualEffectView()
-        material.material = .popover
+        material.material = .underWindowBackground
         material.blendingMode = .behindWindow
         material.state = .active
         window.contentView = material
@@ -130,7 +132,10 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         // white rectangle where the notes should be. The explicit frame,
         // container size and `widthTracksTextView` below are the minimum that
         // makes a text view inside a scroll view actually render.
-        let notesWidth = width - Metrics.spacing(10)
+        // The card's padding and the scroller both eat into the text's width.
+        // Starting the container too wide leaves lines clipped on the right,
+        // because `widthTracksTextView` only narrows from the frame it is given.
+        let notesWidth = width - Metrics.spacing(10) - 20 - 18
         notesView.frame = NSRect(x: 0, y: 0, width: notesWidth, height: 240)
         notesView.minSize = .zero
         notesView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
@@ -159,12 +164,6 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         notesScroll.contentView.drawsBackground = false
         notesScroll.borderType = .noBorder
         notesScroll.translatesAutoresizingMaskIntoConstraints = false
-        notesScroll.wantsLayer = true
-        notesScroll.layer?.cornerRadius = Metrics.cornerRadius(.control)
-        notesScroll.layer?.cornerCurve = .continuous
-        // A whisper of a well, so the notes read as inset without becoming a
-        // second competing surface.
-        notesScroll.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
 
         // Progress
         progressBar.style = .bar
@@ -188,7 +187,13 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         buttonRow.alignment = .centerY
         buttonRow.spacing = Metrics.spacing(2)
 
-        rootStack = NSStackView(views: [header, notesScroll, progressStack, buttonRow])
+        let notesPadding = NSView()
+        notesPadding.translatesAutoresizingMaskIntoConstraints = false
+        notesPadding.addSubview(notesScroll)
+        Glass.pin(notesScroll, to: notesPadding, inset: 10)
+        notesCard = Glass.panel(notesPadding, cornerRadius: 14)
+
+        rootStack = NSStackView(views: [header, notesCard, progressStack, buttonRow])
         rootStack.orientation = .vertical
         rootStack.alignment = .leading
         rootStack.spacing = Metrics.spacing(3)
@@ -213,11 +218,11 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
             spinner.centerXAnchor.constraint(equalTo: heroBox.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: heroBox.centerYAnchor),
 
-            notesScroll.widthAnchor.constraint(equalTo: rootStack.widthAnchor,
-                                               constant: -Metrics.spacing(10)),
+            notesCard.widthAnchor.constraint(equalTo: rootStack.widthAnchor,
+                                             constant: -Metrics.spacing(10)),
             notesScroll.heightAnchor.constraint(equalToConstant: Metrics.pointSize(.caption) * 12),
-            progressBar.widthAnchor.constraint(equalTo: notesScroll.widthAnchor),
-            buttonRow.trailingAnchor.constraint(equalTo: notesScroll.trailingAnchor),
+            progressBar.widthAnchor.constraint(equalTo: notesCard.widthAnchor),
+            buttonRow.trailingAnchor.constraint(equalTo: notesCard.trailingAnchor),
         ])
 
         self.window = window
@@ -343,10 +348,10 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
 
     private func setNotes(_ markdown: String?) {
         guard let markdown, !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            notesScroll.isHidden = true
+            notesCard.isHidden = true
             return
         }
-        notesScroll.isHidden = false
+        notesCard.isHidden = false
         notesView.textStorage?.setAttributedString(ReleaseNotes.rendered(markdown))
         notesView.scroll(.zero)
     }
@@ -400,10 +405,25 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         return formatter.string(fromByteCount: bytes)
     }
 
+    /// Matches the text container to the scroll view's actual width.
+    ///
+    /// `widthTracksTextView` only narrows the container to the text view's
+    /// frame, and that frame does not reliably follow a clip view sized by
+    /// Auto Layout — so long lines were being clipped on the right rather than
+    /// wrapped. Setting it after layout is the reliable version.
+    private func syncNotesWidth() {
+        let available = notesScroll.contentSize.width
+        guard available > 20 else { return }
+        notesView.setFrameSize(NSSize(width: available, height: notesView.frame.height))
+        notesView.textContainer?.containerSize = NSSize(width: available,
+                                                        height: CGFloat.greatestFiniteMagnitude)
+    }
+
     /// Fits the window to its content, animating unless Reduce Motion is on.
     private func resize() {
         guard let window, let content = window.contentView else { return }
         rootStack.layoutSubtreeIfNeeded()
+        syncNotesWidth()
         let fitted = rootStack.fittingSize
         guard fitted.height > 0 else { return }
 

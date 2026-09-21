@@ -15,6 +15,11 @@ enum DefaultHandler {
         let id: String
         let title: String
         let detail: String
+        /// SF Symbol for the row's badge.
+        let symbol: String
+        /// Badge tint, taken from the icon's palette so the window and the app
+        /// icon read as the same product.
+        let tint: NSColor
         let types: [UTType]
         /// Whether to claim this group by default.
         let recommended: Bool
@@ -25,6 +30,8 @@ enum DefaultHandler {
             id: "photos",
             title: "Photos",
             detail: "JPEG, HEIC, PNG, GIF, TIFF, WebP, BMP, AVIF",
+            symbol: "photo",
+            tint: NSColor(red: 0.200, green: 0.510, blue: 0.867, alpha: 1),
             types: [.jpeg, .heic, .heif, .png, .gif, .tiff, .webP, .bmp, .init("public.avif")]
                 .compactMap { $0 },
             recommended: true
@@ -33,6 +40,8 @@ enum DefaultHandler {
             id: "raw",
             title: "Camera RAW",
             detail: "CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG and the rest",
+            symbol: "camera.aperture",
+            tint: NSColor(red: 0.302, green: 0.741, blue: 0.267, alpha: 1),
             types: [UTType("public.camera-raw-image"), .init("com.adobe.raw-image")]
                 .compactMap { $0 },
             recommended: true
@@ -41,6 +50,8 @@ enum DefaultHandler {
             id: "vector",
             title: "SVG",
             detail: "Re-rendered as you zoom, so it stays sharp",
+            symbol: "scribble.variable",
+            tint: NSColor(red: 0.180, green: 0.718, blue: 0.553, alpha: 1),
             types: [UTType.svg].compactMap { $0 },
             recommended: true
         ),
@@ -48,6 +59,8 @@ enum DefaultHandler {
             id: "pdf",
             title: "PDF",
             detail: "Casa shows page one. You probably want Preview for documents",
+            symbol: "doc.richtext",
+            tint: NSColor(red: 0.898, green: 0.600, blue: 0.114, alpha: 1),
             types: [UTType.pdf],
             recommended: false
         ),

@@ -1,13 +1,11 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// The window you get when you launch Casa without a photo.
+/// The window Casa opens when you launch it without a photo.
 ///
-/// Casa's job begins when you double-click a file, so an empty viewer would be
-/// pointless — but "set the defaults" is not enough to justify a window either,
-/// and once that's done it has nothing to say. So it's a small settings window
-/// with a source list: defaults, what changed, where the project lives, and a
-/// way to say thanks.
+/// Built on `NSGlassEffectView` where the OS has it. The sidebar and every card
+/// are separate glass panels inside one `NSGlassEffectContainerView`, so they
+/// merge rather than each drawing its own hard edge.
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
 
@@ -25,7 +23,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         var symbol: String {
             switch self {
-            case .defaults: "doc.on.doc"
+            case .defaults: "square.grid.2x2"
             case .whatsNew: "sparkles"
             case .about: "info.circle"
             case .support: "heart"
@@ -38,26 +36,33 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private var selected: Tab = .defaults
-    private var sidebarButtons: [Tab: SidebarButton] = [:]
+    private var sidebarRows: [Tab: SidebarRow] = [:]
     private var contentContainer: NSView!
     private var panes: [Tab: NSView] = [:]
+    private var paneStacks: [Tab: NSStackView] = [:]
 
-    // Defaults pane
-    private var rows: [(group: DefaultHandler.Group, toggle: NSButton, status: NSTextField)] = []
+    private var rows: [(group: DefaultHandler.Group, toggle: NSSwitch, chip: StatusChip)] = []
     private var claimButton: NSButton!
     private var defaultsStatus: NSTextField!
-
-    // What's New pane
     private var notesText: NSTextView!
     private var notesSpinner: NSProgressIndicator!
     private var hasLoadedNotes = false
+
+    private static let inset: CGFloat = 14
+    private static let cardRadius: CGFloat = 18
+    private static let sidebarWidth: CGFloat = 188
 
     // MARK: - Presentation
 
     func present(selecting tab: Tab = .defaults) {
         if window == nil { build() }
-        select(tab)
+        select(tab, animated: false)
         refreshDefaults()
+        // The window has to lay out before any pane can report a sensible
+        // fitting height; before that the stacks have zero width and the
+        // wrapping labels answer nonsense.
+        window?.contentView?.layoutSubtreeIfNeeded()
+        fitWindow(to: tab, animated: false)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -65,13 +70,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func close() { window?.orderOut(nil) }
     var isVisible: Bool { window?.isVisible ?? false }
+    func windowWillClose(_ notification: Notification) {}
 
     // MARK: - Shell
 
     private func build() {
-        let width: CGFloat = 660, height: CGFloat = 470
-
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 790, height: 516),
                               styleMask: [.titled, .closable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.titleVisibility = .hidden
@@ -82,103 +86,148 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
 
-        let root = DropReceivingView()
-        root.material = .windowBackground
-        root.blendingMode = .behindWindow
-        root.state = .active
-        root.onDrop = { [weak self] url in self?.handleOpen(url) }
-        window.contentView = root
+        // The ground the glass refracts. Without something behind it, glass has
+        // nothing to be glass *of*.
+        let ground = DropReceivingView()
+        ground.material = .underWindowBackground
+        ground.blendingMode = .behindWindow
+        ground.state = .active
+        ground.onDrop = { [weak self] url in self?.handleOpen(url) }
+        window.contentView = ground
 
-        // --- sidebar ---
-        let sidebar = NSVisualEffectView()
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
-        sidebar.state = .active
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(sidebar)
-
+        // --- sidebar -----------------------------------------------------
         let sidebarStack = NSStackView()
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
-        sidebarStack.spacing = Metrics.spacing(0.5)
-        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
-        sidebar.addSubview(sidebarStack)
+        sidebarStack.spacing = 2
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 44, left: 10, bottom: 12, right: 10)
 
         for tab in Tab.allCases {
-            let button = SidebarButton(tab: tab, target: self, action: #selector(selectTab(_:)))
-            sidebarButtons[tab] = button
-            sidebarStack.addView(button, in: .top)
-            button.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor).isActive = true
+            let row = SidebarRow(tab: tab, target: self, action: #selector(selectTab(_:)))
+            sidebarRows[tab] = row
+            sidebarStack.addView(row, in: .top)
+            row.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor, constant: -20).isActive = true
         }
 
-        // --- content ---
+        let sidebar = Glass.panel(sidebarStack, cornerRadius: Self.cardRadius)
+
+        // --- content -----------------------------------------------------
         contentContainer = NSView()
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(contentContainer)
 
-        let sidebarWidth = max(170, Metrics.pointSize(.control) * 12)
+        let layout = NSView()
+        layout.translatesAutoresizingMaskIntoConstraints = false
+        layout.addSubview(sidebar)
+        layout.addSubview(contentContainer)
+
         NSLayoutConstraint.activate([
-            sidebar.topAnchor.constraint(equalTo: root.topAnchor),
-            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            sidebar.widthAnchor.constraint(equalToConstant: sidebarWidth),
+            sidebar.topAnchor.constraint(equalTo: layout.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: layout.bottomAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: layout.leadingAnchor),
+            sidebar.widthAnchor.constraint(equalToConstant: Self.sidebarWidth),
 
-            // Clear of the traffic lights.
-            sidebarStack.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: Metrics.spacing(9)),
-            sidebarStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: Metrics.spacing(2)),
-            sidebarStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -Metrics.spacing(2)),
-
-            contentContainer.topAnchor.constraint(equalTo: root.topAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            contentContainer.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentContainer.topAnchor.constraint(equalTo: layout.topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: layout.bottomAnchor),
+            contentContainer.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: 14),
+            contentContainer.trailingAnchor.constraint(equalTo: layout.trailingAnchor),
         ])
 
-        panes[.defaults] = buildDefaultsPane()
-        panes[.whatsNew] = buildWhatsNewPane()
-        panes[.about] = buildAboutPane()
-        panes[.support] = buildSupportPane()
+        // One container so the sidebar and the cards merge instead of each
+        // rendering an isolated pane of frosted glass.
+        let container = Glass.container(layout, spacing: 22)
+        ground.addSubview(container)
+        Glass.pin(container, to: ground, inset: Self.inset)
 
+        for (tab, make) in [(Tab.defaults, buildDefaultsPane),
+                            (Tab.whatsNew, buildWhatsNewPane),
+                            (Tab.about, buildAboutPane),
+                            (Tab.support, buildSupportPane)] {
+            panes[tab] = make()
+            paneStacks[tab] = lastBuiltStack
+        }
+
+        // Deliberately NOT added to the hierarchy here. A hidden view still
+        // participates in Auto Layout, so leaving all four installed made the
+        // tallest pane dictate the window's height on every tab. Only the
+        // visible pane is a subview.
         for pane in panes.values {
             pane.translatesAutoresizingMaskIntoConstraints = false
-            pane.isHidden = true
-            contentContainer.addSubview(pane)
-            NSLayoutConstraint.activate([
-                pane.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-                pane.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-                pane.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-                pane.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            ])
         }
 
         self.window = window
     }
 
-    @objc private func selectTab(_ sender: SidebarButton) { select(sender.tab) }
+    @objc private func selectTab(_ sender: SidebarRow) { select(sender.tab, animated: true) }
 
-    private func select(_ tab: Tab) {
+    private func select(_ tab: Tab, animated: Bool) {
+        let previous = selected
         selected = tab
-        for (key, button) in sidebarButtons { button.isSelected = key == tab }
-        for (key, pane) in panes { pane.isHidden = key != tab }
+        for (key, row) in sidebarRows { row.isSelected = key == tab }
+        guard previous != tab || !animated else { return }
+
+        let duration = Accommodations.current.reduceMotion ? 0 : 0.16
+
+        for subview in contentContainer.subviews { subview.removeFromSuperview() }
+        guard let incoming = panes[tab] else { return }
+        incoming.alphaValue = animated ? 0 : 1
+        contentContainer.addSubview(incoming)
+        Glass.pin(incoming, to: contentContainer)
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                incoming.animator().alphaValue = 1
+            }
+        }
         if tab == .whatsNew { loadReleaseNotesIfNeeded() }
+        if window?.isVisible == true { fitWindow(to: tab, animated: animated) }
     }
 
-    /// A titled section, used to give every pane the same rhythm.
-    private func pane(title: String, subtitle: String, content: [NSView]) -> NSView {
+    /// Sizes the window to the pane being shown.
+    ///
+    /// The panes differ by a couple of hundred points, and a window sized for
+    /// the tallest leaves the shortest sitting in a field of nothing. Resizing
+    /// costs one animation and removes the dead space entirely.
+    private func fitWindow(to tab: Tab, animated: Bool) {
+        guard let window else { return }
+        guard let stack = paneStacks[tab] else { return }
+        stack.layoutSubtreeIfNeeded()
+
+        window.contentView?.layoutSubtreeIfNeeded()
+        let content = max(stack.fittingSize.height, 260)
+        let target = content + Self.inset * 2
+        var frame = window.frame
+        let delta = target - frame.height
+        guard abs(delta) > 1 else { return }
+
+        frame.size.height = target
+        // Grow downward from the title bar so the window's top edge stays put.
+        frame.origin.y -= delta
+        window.setFrame(frame, display: true,
+                        animate: animated && !Accommodations.current.reduceMotion)
+    }
+
+    // MARK: - Pane scaffolding
+
+    /// Every pane: a large title, a line of context, then content.
+    func pane(title: String, subtitle: String, content: [NSView],
+              contentSpacing: CGFloat = 14) -> NSView {
         let heading = NSTextField(labelWithString: title)
-        heading.font = NSFont.systemFont(ofSize: Metrics.pointSize(.title) * 1.25, weight: .semibold)
+        heading.font = Typography.largeTitle
 
         let sub = NSTextField(wrappingLabelWithString: subtitle)
-        sub.font = Metrics.font(.caption)
+        sub.font = Typography.body
         sub.textColor = .secondaryLabelColor
+        sub.preferredMaxLayoutWidth = 480
 
         let stack = NSStackView(views: [heading, sub] + content)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.spacing(2)
-        stack.setCustomSpacing(Metrics.spacing(4), after: sub)
-        stack.edgeInsets = NSEdgeInsets(top: Metrics.spacing(8), left: Metrics.spacing(5),
-                                        bottom: Metrics.spacing(4), right: Metrics.spacing(5))
+        stack.spacing = contentSpacing
+        stack.setCustomSpacing(6, after: heading)
+        stack.setCustomSpacing(26, after: sub)
+        stack.edgeInsets = NSEdgeInsets(top: 42, left: 10, bottom: 18, right: 24)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
@@ -189,10 +238,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor),
         ])
+        lastBuiltStack = stack
         return container
     }
 
-    func windowWillClose(_ notification: Notification) {}
+    /// Set by `pane(...)` so `build()` can associate each stack with its tab —
+    /// the stack's fitting height is what the window resizes to.
+    private var lastBuiltStack: NSStackView?
+
+    func card(_ content: NSView, tint: NSColor? = nil, padding: CGFloat = 16) -> NSView {
+        let padded = NSView()
+        padded.translatesAutoresizingMaskIntoConstraints = false
+        content.translatesAutoresizingMaskIntoConstraints = false
+        padded.addSubview(content)
+        Glass.pin(content, to: padded, inset: padding)
+        return Glass.panel(padded, cornerRadius: Self.cardRadius, tint: tint)
+    }
 
     private func handleOpen(_ url: URL) {
         close()
@@ -204,55 +265,55 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
 extension SettingsWindowController {
 
-    private var totalTypeCount: Int {
-        DefaultHandler.groups.reduce(0) { $0 + $1.types.count }
-    }
-
     func buildDefaultsPane() -> NSView {
-        let card = InsetCardView()
-        let cardStack = NSStackView()
-        cardStack.orientation = .vertical
-        cardStack.alignment = .leading
-        cardStack.spacing = Metrics.spacing(2)
-        cardStack.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(cardStack)
-        let pad = Metrics.spacing(3)
-        NSLayoutConstraint.activate([
-            cardStack.topAnchor.constraint(equalTo: card.topAnchor, constant: pad),
-            cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: pad),
-            cardStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -pad),
-            cardStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -pad),
-        ])
+        let list = NSStackView()
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 0
+        list.translatesAutoresizingMaskIntoConstraints = false
 
-        for group in DefaultHandler.groups {
-            let toggle = NSButton(checkboxWithTitle: group.title, target: nil, action: nil)
-            toggle.state = group.recommended ? .on : .off
-            toggle.font = Metrics.font(.control)
+        for (index, group) in DefaultHandler.groups.enumerated() {
+            if index > 0 {
+                let rule = NSBox()
+                rule.boxType = .separator
+                rule.translatesAutoresizingMaskIntoConstraints = false
+                list.addView(rule, in: .bottom)
+                rule.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+            }
+
+            let badge = BadgeView(symbol: group.symbol, tint: group.tint)
+
+            let title = NSTextField(labelWithString: group.title)
+            title.font = Typography.heading
 
             let detail = NSTextField(labelWithString: group.detail)
-            detail.font = Metrics.font(.caption)
+            detail.font = Typography.caption
             detail.textColor = .tertiaryLabelColor
+            detail.lineBreakMode = .byTruncatingTail
 
-            let status = NSTextField(labelWithString: "")
-            status.font = Metrics.font(.caption)
-            status.alignment = .right
-
-            let labels = NSStackView(views: [toggle, detail])
+            let labels = NSStackView(views: [title, detail])
             labels.orientation = .vertical
             labels.alignment = .leading
             labels.spacing = 1
 
-            let row = NSStackView(views: [labels, NSView(), status])
+            let chip = StatusChip()
+            let toggle = NSSwitch()
+            toggle.state = group.recommended ? .on : .off
+            toggle.controlSize = .small
+
+            let row = NSStackView(views: [badge, labels, NSView(), chip, toggle])
             row.orientation = .horizontal
             row.alignment = .centerY
-            cardStack.addView(row, in: .bottom)
-            row.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+            row.spacing = 12
+            row.edgeInsets = NSEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
+            list.addView(row, in: .bottom)
+            row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
 
-            rows.append((group, toggle, status))
+            rows.append((group, toggle, chip))
         }
 
         defaultsStatus = NSTextField(labelWithString: "")
-        defaultsStatus.font = Metrics.font(.caption)
+        defaultsStatus.font = Typography.caption
         defaultsStatus.textColor = .secondaryLabelColor
 
         claimButton = NSButton(title: "Make Casa the Default", target: self,
@@ -266,36 +327,44 @@ extension SettingsWindowController {
         openButton.bezelStyle = .push
         openButton.controlSize = .large
 
-        let buttons = NSStackView(views: [openButton, NSView(), claimButton])
-        buttons.orientation = .horizontal
-        buttons.alignment = .centerY
+        let footer = NSStackView(views: [defaultsStatus, NSView(), openButton, claimButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 10
 
-        card.translatesAutoresizingMaskIntoConstraints = false
+        let hint = NSTextField(wrappingLabelWithString:
+            "macOS asks you to confirm each type separately. Casa tells you how many "
+            + "dialogs to expect before it starts.\n\n"
+            + "You can also drop a photo anywhere on this window to open it.")
+        hint.font = Typography.caption
+        hint.textColor = .tertiaryLabelColor
+        hint.preferredMaxLayoutWidth = 500
+
+        let listCard = card(list)
         let container = pane(
             title: "File Types",
             subtitle: "Until Casa is the default, double-clicking a photo still opens Preview.",
-            content: [card, defaultsStatus, buttons]
+            content: [listCard, footer, hint]
         )
         NSLayoutConstraint.activate([
-            card.widthAnchor.constraint(equalToConstant: 420),
-            buttons.widthAnchor.constraint(equalTo: card.widthAnchor),
+            listCard.widthAnchor.constraint(equalToConstant: 520),
+            footer.widthAnchor.constraint(equalTo: listCard.widthAnchor),
         ])
         return container
     }
 
     func refreshDefaults() {
         guard !rows.isEmpty else { return }
-        var pendingRecommended = false
+        var anyToClaim = false
         for row in rows {
             let ours = DefaultHandler.owns(row.group)
-            row.status.stringValue = DefaultHandler.summary(for: row.group)
-            row.status.textColor = ours ? .systemGreen : .secondaryLabelColor
+            row.chip.set(text: DefaultHandler.summary(for: row.group), isGood: ours)
             row.toggle.isEnabled = !ours
             if ours { row.toggle.state = .on }
-            if row.group.recommended && !ours { pendingRecommended = true }
+            if row.toggle.state == .on && !ours { anyToClaim = true }
         }
-        claimButton.isEnabled = rows.contains { $0.toggle.state == .on && !DefaultHandler.owns($0.group) }
-        if !pendingRecommended && !claimButton.isEnabled {
+        claimButton.isEnabled = anyToClaim
+        if !anyToClaim {
             defaultsStatus.stringValue = "Casa opens your photos."
             defaultsStatus.textColor = .systemGreen
         }
@@ -307,16 +376,16 @@ extension SettingsWindowController {
         guard !selected.isEmpty else { return }
         let count = selected.reduce(0) { $0 + $1.types.count }
 
-        // Warn first. macOS asks separately for every single file type, and
-        // being surprised by thirteen consecutive dialogs is a genuinely bad
-        // few seconds — worse than being told it's coming.
+        // macOS confirms every file type separately. Thirteen dialogs with no
+        // warning is a bad surprise; thirteen dialogs you were told about is
+        // just a task.
         let alert = NSAlert()
         alert.messageText = "macOS will ask \(count) times"
         alert.informativeText = """
-            It confirms each file type separately, so you'll get \(count) dialogs \
-            in a row. Click "Use Casa" on each.
+            It confirms each file type separately, so expect \(count) dialogs in a row. \
+            Click "Use Casa" on each one.
 
-            Uncheck groups first if you'd rather do fewer.
+            Turn off groups first if you'd rather do fewer.
             """
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
@@ -338,13 +407,12 @@ extension SettingsWindowController {
     private func finish(_ outcome: DefaultHandler.Outcome) {
         switch outcome {
         case .claimed(let count):
-            defaultsStatus.stringValue = "Done — Casa opens \(count) file types."
+            defaultsStatus.stringValue = "Done. Casa opens \(count) file types."
             defaultsStatus.textColor = .systemGreen
             if let root = window?.contentView { Confetti.burst(over: root) }
-            // Let the confetti land, then get out of the way. Leaving a window
-            // of greyed-out controls sitting there is the least satisfying way
-            // to end a job the user just did work for.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+            // Then get out of the way. A window of greyed-out controls is a
+            // poor reward for work the user just did.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
                 guard let self, self.selected == .defaults else { return }
                 self.close()
             }
@@ -374,22 +442,22 @@ extension SettingsWindowController {
 extension SettingsWindowController {
 
     func buildWhatsNewPane() -> NSView {
+        let width: CGFloat = 468
         notesText = NSTextView()
-        let notesWidth: CGFloat = 430
-        notesText.frame = NSRect(x: 0, y: 0, width: notesWidth, height: 300)
+        notesText.frame = NSRect(x: 0, y: 0, width: width, height: 320)
         notesText.minSize = .zero
         notesText.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                    height: CGFloat.greatestFiniteMagnitude)
         notesText.isVerticallyResizable = true
         notesText.isHorizontallyResizable = false
         notesText.autoresizingMask = [.width]
-        notesText.textContainer?.containerSize = NSSize(width: notesWidth,
+        notesText.textContainer?.containerSize = NSSize(width: width,
                                                         height: CGFloat.greatestFiniteMagnitude)
         notesText.textContainer?.widthTracksTextView = true
         notesText.isEditable = false
         notesText.isSelectable = true
         notesText.drawsBackground = false
-        notesText.textContainerInset = NSSize(width: Metrics.spacing(1), height: Metrics.spacing(1))
+        notesText.textContainerInset = NSSize(width: 4, height: 6)
 
         let scroll = NSScrollView()
         scroll.documentView = notesText
@@ -404,12 +472,13 @@ extension SettingsWindowController {
         notesSpinner.controlSize = .small
         notesSpinner.isDisplayedWhenStopped = false
 
+        let notesCard = card(scroll, padding: 12)
         let container = pane(title: "What's New",
-                             subtitle: "Release notes from GitHub.",
-                             content: [notesSpinner, scroll])
+                             subtitle: "Release notes, straight from GitHub.",
+                             content: [notesSpinner, notesCard])
         NSLayoutConstraint.activate([
-            scroll.widthAnchor.constraint(equalToConstant: notesWidth),
-            scroll.heightAnchor.constraint(equalToConstant: 300),
+            notesCard.widthAnchor.constraint(equalToConstant: 520),
+            scroll.heightAnchor.constraint(equalToConstant: 296),
         ])
         return container
     }
@@ -424,9 +493,9 @@ extension SettingsWindowController {
             defer { self.notesSpinner.stopAnimation(nil) }
             do {
                 let releases = try await checker.recentReleases()
-                let markdown = releases.map { release in
-                    "## \(release.title)\n\n\(release.notes)"
-                }.joined(separator: "\n\n---\n\n")
+                let markdown = releases
+                    .map { "## \($0.title)\n\n\($0.notes)" }
+                    .joined(separator: "\n\n---\n\n")
                 self.notesText.textStorage?.setAttributedString(
                     ReleaseNotes.rendered(markdown.isEmpty ? "No releases yet." : markdown))
                 self.notesText.scroll(.zero)
@@ -443,10 +512,13 @@ extension SettingsWindowController {
 
 extension SettingsWindowController {
 
-    private func link(_ title: String, _ urlString: String, primary: Bool = false) -> NSButton {
-        let button = NSButton(title: title, target: self, action: #selector(openLink(_:)))
+    private func link(_ title: String, _ symbol: String, _ urlString: String,
+                      primary: Bool = false) -> NSButton {
+        let button = NSButton(title: "  " + title, target: self, action: #selector(openLink(_:)))
         button.bezelStyle = .push
         button.controlSize = .large
+        button.image = Metrics.icon(symbol, role: .caption, describedAs: title)
+        button.imagePosition = .imageLeading
         button.identifier = NSUserInterfaceItemIdentifier(urlString)
         if primary { button.bezelColor = .controlAccentColor }
         return button
@@ -469,165 +541,95 @@ extension SettingsWindowController {
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         let name = NSTextField(labelWithString: "Casa \(version)")
-        name.font = NSFont.systemFont(ofSize: Metrics.pointSize(.title) * 1.2, weight: .semibold)
+        name.font = Typography.title
 
-        let buildLine = NSTextField(labelWithString: "Build \(build) · by Jack Harvest")
-        buildLine.font = Metrics.font(.caption)
-        buildLine.textColor = .secondaryLabelColor
+        let meta = NSTextField(labelWithString: "Build \(build)   ·   by Jack Harvest   ·   MIT")
+        meta.font = Typography.mono
+        meta.textColor = .secondaryLabelColor
 
-        let names = NSStackView(views: [name, buildLine])
-        names.orientation = .vertical
-        names.alignment = .leading
-        names.spacing = 2
+        let blurb = NSTextField(wrappingLabelWithString:
+            "A fast photo viewer for macOS, in the shape of the one Picasa used to ship.")
+        blurb.font = Typography.body
+        blurb.textColor = .secondaryLabelColor
+        blurb.preferredMaxLayoutWidth = 300
 
-        let masthead = NSStackView(views: [icon, names])
+        let text = NSStackView(views: [name, meta, blurb])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 4
+        text.setCustomSpacing(10, after: meta)
+
+        let masthead = NSStackView(views: [icon, text])
         masthead.orientation = .horizontal
-        masthead.alignment = .centerY
-        masthead.spacing = Metrics.spacing(3)
+        masthead.alignment = .top
+        masthead.spacing = 18
 
-        let updateButton = NSButton(title: "Check for Updates…", target: self,
+        let updateButton = NSButton(title: "  Check for Updates…", target: self,
                                     action: #selector(checkUpdatesTapped))
         updateButton.bezelStyle = .push
         updateButton.controlSize = .large
+        updateButton.image = Metrics.icon("arrow.triangle.2.circlepath", role: .caption,
+                                          describedAs: "Check for updates")
+        updateButton.imagePosition = .imageLeading
 
         let links = NSStackView(views: [
-            link("GitHub", "https://github.com/jackharvest/Casa"),
-            link("Releases", "https://github.com/jackharvest/Casa/releases"),
+            link("GitHub", "chevron.left.forwardslash.chevron.right",
+                 "https://github.com/jackharvest/Casa"),
+            link("Releases", "shippingbox", "https://github.com/jackharvest/Casa/releases"),
             updateButton,
         ])
         links.orientation = .horizontal
-        links.spacing = Metrics.spacing(1.5)
+        links.spacing = 10
 
+        let mastheadCard = card(masthead)
         let container = pane(title: "About",
-                             subtitle: "A fast, chromeless photo viewer for macOS. MIT licensed.",
-                             content: [masthead, links])
-        let edge = Metrics.hitTarget(.hero) * 1.4
+                             subtitle: "Version, source, and where to find the rest.",
+                             content: [mastheadCard, links])
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: edge),
-            icon.heightAnchor.constraint(equalToConstant: edge),
+            icon.widthAnchor.constraint(equalToConstant: 92),
+            icon.heightAnchor.constraint(equalToConstant: 92),
+            mastheadCard.widthAnchor.constraint(equalToConstant: 520),
         ])
         return container
     }
 
     func buildSupportPane() -> NSView {
-        let body = NSTextField(wrappingLabelWithString: """
-            Casa is free and always will be. If it saved you some time, \
-            a coffee is a nice way to say so.
-            """)
-        body.font = Metrics.font(.control)
-        body.preferredMaxLayoutWidth = 400
+        let heart = BadgeView(symbol: "cup.and.saucer.fill",
+                              tint: NSColor(red: 0.898, green: 0.412, blue: 0.122, alpha: 1),
+                              edge: 46)
 
-        let coffee = link("Buy Me a Coffee", "https://buymeacoffee.com/jackharvest", primary: true)
-        let issues = link("Report an Issue", "https://github.com/jackharvest/Casa/issues")
+        let title = NSTextField(labelWithString: "Casa is free, and stays free")
+        title.font = Typography.heading
 
-        let buttons = NSStackView(views: [coffee, issues])
+        let body = NSTextField(wrappingLabelWithString:
+            "If it saved you some time, a coffee is a nice way to say so. Bug reports count too.")
+        body.font = Typography.body
+        body.textColor = .secondaryLabelColor
+        body.preferredMaxLayoutWidth = 360
+
+        let text = NSStackView(views: [title, body])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 4
+
+        let inner = NSStackView(views: [heart, text])
+        inner.orientation = .horizontal
+        inner.alignment = .top
+        inner.spacing = 14
+
+        let buttons = NSStackView(views: [
+            link("Buy Me a Coffee", "cup.and.saucer",
+                 "https://buymeacoffee.com/jackharvest", primary: true),
+            link("Report an Issue", "ladybug", "https://github.com/jackharvest/Casa/issues"),
+        ])
         buttons.orientation = .horizontal
-        buttons.spacing = Metrics.spacing(1.5)
+        buttons.spacing = 10
 
-        return pane(title: "Support",
-                    subtitle: "Bug reports are worth as much as coffee.",
-                    content: [body, buttons])
-    }
-}
-
-// MARK: - Supporting views
-
-/// A source-list row: symbol, title, and a selected background.
-private final class SidebarButton: NSButton {
-    let tab: SettingsWindowController.Tab
-    var isSelected = false { didSet { refresh() } }
-
-    init(tab: SettingsWindowController.Tab, target: AnyObject, action: Selector) {
-        self.tab = tab
-        super.init(frame: .zero)
-        self.target = target
-        self.action = action
-        isBordered = false
-        imagePosition = .imageLeading
-        alignment = .left
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        title = " " + tab.title
-        image = Metrics.icon(tab.symbol, role: .caption, describedAs: tab.title)
-        font = Metrics.font(.control)
-        heightAnchor.constraint(equalToConstant: Metrics.hitTarget(.control)).isActive = true
-        refresh()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    private func refresh() {
-        layer?.cornerRadius = Metrics.cornerRadius(.control)
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = isSelected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.85).cgColor
-            : NSColor.clear.cgColor
-        contentTintColor = isSelected ? .white : .labelColor
-    }
-}
-
-/// A rounded well that groups rows without becoming a competing surface.
-private final class InsetCardView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        let layer = CALayer()
-        layer.cornerRadius = Metrics.cornerRadius(.control) * 1.4
-        layer.cornerCurve = .continuous
-        layer.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
-        layer.borderColor = NSColor.separatorColor.withAlphaComponent(0.6).cgColor
-        layer.borderWidth = 1
-        self.layer = layer
-        wantsLayer = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used") }
-}
-
-/// The window background, which also accepts a dropped photo.
-private final class DropReceivingView: NSVisualEffectView {
-    var onDrop: ((URL) -> Void)?
-    private var isTargeted = false { didSet { needsDisplay = true } }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    private func droppedURL(_ sender: NSDraggingInfo) -> URL? {
-        guard let urls = sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        else { return nil }
-        return urls.first { SupportedTypes.canOpen($0) }
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        isTargeted = droppedURL(sender) != nil
-        return isTargeted ? .copy : []
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) { isTargeted = false }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        isTargeted = false
-        guard let url = droppedURL(sender) else { return false }
-        onDrop?(url)
-        return true
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard isTargeted else { return }
-        let inset = Metrics.spacing(2)
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset),
-                                xRadius: Metrics.cornerRadius(.control) * 2,
-                                yRadius: Metrics.cornerRadius(.control) * 2)
-        NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
-        path.lineWidth = max(3, Metrics.spacing(0.75))
-        path.stroke()
+        let supportCard = card(inner)
+        let container = pane(title: "Support",
+                             subtitle: "Thanks for trying it.",
+                             content: [supportCard, buttons])
+        supportCard.widthAnchor.constraint(equalToConstant: 520).isActive = true
+        return container
     }
 }

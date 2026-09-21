@@ -117,7 +117,9 @@ macOS remembers after that.
 
 Then launch it once. Casa only does anything when you double-click a photo, so
 the window it opens on its own is mostly about getting it wired up as the app
-that receives those double-clicks:
+that receives those double-clicks. It's built on `NSGlassEffectView`, so on
+macOS 26 and later it's real Liquid Glass, and falls back to vibrancy before
+that:
 
 <div align="center">
 <img src="docs/assets/settings.png" alt="Casa's settings window" width="76%">
