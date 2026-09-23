@@ -46,11 +46,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var defaultsStatus: NSTextField!
     private var notesText: NSTextView!
     private var notesSpinner: NSProgressIndicator!
+    private var notesScroll: NSScrollView?
     private var hasLoadedNotes = false
 
-    private static let inset: CGFloat = 14
-    private static let cardRadius: CGFloat = 18
-    private static let sidebarWidth: CGFloat = 188
+    // Layout, in one place. The window used to be built from 10–14 pt gaps
+    // and fixed 520 pt cards, and every pane read as cramped: buttons nearly
+    // touching the bottom edge, the close button jammed against the sidebar,
+    // one-line descriptions truncated. The content column now has real
+    // margins on both sides and every card fills it.
+    private static let inset: CGFloat = 10          // window edge → glass
+    private static let cardRadius: CGFloat = 20
+    private static let sidebarWidth: CGFloat = 212
+    private static let columnGap: CGFloat = 36      // sidebar → content
+    private static let paneInsets = NSEdgeInsets(top: 62, left: 8, bottom: 40, right: 44)
+    /// The width every card and footer fills.
+    static let contentWidth: CGFloat = 600
+    private static var windowWidth: CGFloat {
+        inset * 2 + sidebarWidth + columnGap + paneInsets.left + contentWidth + paneInsets.right
+    }
 
     // MARK: - Presentation
 
@@ -75,11 +88,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     // MARK: - Shell
 
     private func build() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 790, height: 516),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: 540),
                               styleMask: [.titled, .closable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        // An empty unified toolbar makes the title bar taller, which moves the
+        // close button down and in — inside the sidebar's glass, the way
+        // System Settings sits, instead of jammed against its corner.
+        let toolbar = NSToolbar(identifier: "casa.settings")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.isMovableByWindowBackground = true
         window.title = "Casa"
         window.delegate = self
@@ -99,14 +119,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let sidebarStack = NSStackView()
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
-        sidebarStack.spacing = 2
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 44, left: 10, bottom: 12, right: 10)
+        sidebarStack.spacing = 4
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 58, left: 12, bottom: 16, right: 12)
 
         for tab in Tab.allCases {
             let row = SidebarRow(tab: tab, target: self, action: #selector(selectTab(_:)))
             sidebarRows[tab] = row
             sidebarStack.addView(row, in: .top)
-            row.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor, constant: -20).isActive = true
+            row.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor, constant: -24).isActive = true
         }
 
         let sidebar = Glass.panel(sidebarStack, cornerRadius: Self.cardRadius)
@@ -128,7 +148,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
             contentContainer.topAnchor.constraint(equalTo: layout.topAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: layout.bottomAnchor),
-            contentContainer.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: 14),
+            contentContainer.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor,
+                                                      constant: Self.columnGap),
             contentContainer.trailingAnchor.constraint(equalTo: layout.trailingAnchor),
         ])
 
@@ -195,7 +216,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         stack.layoutSubtreeIfNeeded()
 
         window.contentView?.layoutSubtreeIfNeeded()
-        let content = max(stack.fittingSize.height, 260)
+        syncNotesWidth()
+        let content = max(stack.fittingSize.height, 340)
         let target = content + Self.inset * 2
         var frame = window.frame
         let delta = target - frame.height
@@ -212,22 +234,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     /// Every pane: a large title, a line of context, then content.
     func pane(title: String, subtitle: String, content: [NSView],
-              contentSpacing: CGFloat = 14) -> NSView {
+              contentSpacing: CGFloat = 20) -> NSView {
         let heading = NSTextField(labelWithString: title)
         heading.font = Typography.largeTitle
 
         let sub = NSTextField(wrappingLabelWithString: subtitle)
         sub.font = Typography.body
         sub.textColor = .secondaryLabelColor
-        sub.preferredMaxLayoutWidth = 480
+        sub.preferredMaxLayoutWidth = Self.contentWidth
 
         let stack = NSStackView(views: [heading, sub] + content)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = contentSpacing
-        stack.setCustomSpacing(6, after: heading)
-        stack.setCustomSpacing(26, after: sub)
-        stack.edgeInsets = NSEdgeInsets(top: 42, left: 10, bottom: 18, right: 24)
+        stack.setCustomSpacing(8, after: heading)
+        stack.setCustomSpacing(30, after: sub)
+        stack.edgeInsets = Self.paneInsets
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
@@ -246,13 +268,33 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// the stack's fitting height is what the window resizes to.
     private var lastBuiltStack: NSStackView?
 
-    func card(_ content: NSView, tint: NSColor? = nil, padding: CGFloat = 16) -> NSView {
+    /// A glass card the full width of the content column.
+    func card(_ content: NSView, tint: NSColor? = nil,
+              padding: NSEdgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)) -> NSView {
         let padded = NSView()
         padded.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false
         padded.addSubview(content)
-        Glass.pin(content, to: padded, inset: padding)
-        return Glass.panel(padded, cornerRadius: Self.cardRadius, tint: tint)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: padded.topAnchor, constant: padding.top),
+            content.bottomAnchor.constraint(equalTo: padded.bottomAnchor, constant: -padding.bottom),
+            content.leadingAnchor.constraint(equalTo: padded.leadingAnchor, constant: padding.left),
+            content.trailingAnchor.constraint(equalTo: padded.trailingAnchor, constant: -padding.right),
+        ])
+        let panel = Glass.panel(padded, cornerRadius: Self.cardRadius, tint: tint)
+        panel.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
+        return panel
+    }
+
+    /// A row of buttons as wide as the content column, so its edges line up
+    /// with the cards above it.
+    func buttonRow(_ views: [NSView]) -> NSStackView {
+        let row = NSStackView(views: views)
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
+        return row
     }
 
     private func handleOpen(_ url: URL) {
@@ -281,7 +323,7 @@ extension SettingsWindowController {
                 rule.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
             }
 
-            let badge = BadgeView(symbol: group.symbol, tint: group.tint)
+            let badge = BadgeView(symbol: group.symbol, tint: group.tint, edge: 40)
 
             let title = NSTextField(labelWithString: group.title)
             title.font = Typography.heading
@@ -294,20 +336,26 @@ extension SettingsWindowController {
             let labels = NSStackView(views: [title, detail])
             labels.orientation = .vertical
             labels.alignment = .leading
-            labels.spacing = 1
+            labels.spacing = 3
 
             let chip = StatusChip()
             let toggle = NSSwitch()
             toggle.state = group.recommended ? .on : .off
-            toggle.controlSize = .small
+            toggle.controlSize = .regular
 
             let row = NSStackView(views: [badge, labels, NSView(), chip, toggle])
             row.orientation = .horizontal
             row.alignment = .centerY
-            row.spacing = 12
-            row.edgeInsets = NSEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
+            row.spacing = 16
+            row.setCustomSpacing(12, after: chip)
             list.addView(row, in: .bottom)
-            row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+            // An explicit height rather than edge insets: a horizontal stack
+            // nested in a vertical one ignored its insets, and every badge sat
+            // flush against the separators above and below it.
+            NSLayoutConstraint.activate([
+                row.widthAnchor.constraint(equalTo: list.widthAnchor),
+                row.heightAnchor.constraint(equalToConstant: 40 + 30),
+            ])
 
             rows.append((group, toggle, chip))
         }
@@ -327,10 +375,7 @@ extension SettingsWindowController {
         openButton.bezelStyle = .push
         openButton.controlSize = .large
 
-        let footer = NSStackView(views: [defaultsStatus, NSView(), openButton, claimButton])
-        footer.orientation = .horizontal
-        footer.alignment = .centerY
-        footer.spacing = 10
+        let footer = buttonRow([defaultsStatus, NSView(), openButton, claimButton])
 
         let hint = NSTextField(wrappingLabelWithString:
             "macOS asks you to confirm each type separately. Casa tells you how many "
@@ -338,18 +383,16 @@ extension SettingsWindowController {
             + "You can also drop a photo anywhere on this window to open it.")
         hint.font = Typography.caption
         hint.textColor = .tertiaryLabelColor
-        hint.preferredMaxLayoutWidth = 500
+        hint.preferredMaxLayoutWidth = Self.contentWidth
 
-        let listCard = card(list)
+        // Rows carry their own vertical padding, so the card adds only a
+        // little above and below them.
+        let listCard = card(list, padding: NSEdgeInsets(top: 6, left: 24, bottom: 6, right: 22))
         let container = pane(
             title: "File Types",
             subtitle: "Until Casa is the default, double-clicking a photo still opens Preview.",
             content: [listCard, footer, hint]
         )
-        NSLayoutConstraint.activate([
-            listCard.widthAnchor.constraint(equalToConstant: 520),
-            footer.widthAnchor.constraint(equalTo: listCard.widthAnchor),
-        ])
         return container
     }
 
@@ -442,7 +485,7 @@ extension SettingsWindowController {
 extension SettingsWindowController {
 
     func buildWhatsNewPane() -> NSView {
-        let width: CGFloat = 468
+        let width = Self.contentWidth - 48
         notesText = NSTextView()
         notesText.frame = NSRect(x: 0, y: 0, width: width, height: 320)
         notesText.minSize = .zero
@@ -450,14 +493,17 @@ extension SettingsWindowController {
                                    height: CGFloat.greatestFiniteMagnitude)
         notesText.isVerticallyResizable = true
         notesText.isHorizontallyResizable = false
-        notesText.autoresizingMask = [.width]
+        // No autoresizing mask: the scroll view starts at zero size, so
+        // autoresizing added its whole eventual width on top of this frame
+        // and lines ran off the right edge. `syncNotesWidth()` sets it from
+        // the scroll view's real width after layout instead.
         notesText.textContainer?.containerSize = NSSize(width: width,
                                                         height: CGFloat.greatestFiniteMagnitude)
-        notesText.textContainer?.widthTracksTextView = true
+        notesText.textContainer?.widthTracksTextView = false
         notesText.isEditable = false
         notesText.isSelectable = true
         notesText.drawsBackground = false
-        notesText.textContainerInset = NSSize(width: 4, height: 6)
+        notesText.textContainerInset = NSSize(width: 2, height: 4)
 
         let scroll = NSScrollView()
         scroll.documentView = notesText
@@ -471,31 +517,48 @@ extension SettingsWindowController {
         notesSpinner.style = .spinning
         notesSpinner.controlSize = .small
         notesSpinner.isDisplayedWhenStopped = false
+        // Hidden, not merely stopped: a stopped spinner still claims its row
+        // in the stack and left a gap above the notes.
+        notesSpinner.isHidden = true
 
-        let notesCard = card(scroll, padding: 12)
+        let notesCard = card(scroll, padding: NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 14))
         let container = pane(title: "What's New",
                              subtitle: "Release notes, straight from GitHub.",
                              content: [notesSpinner, notesCard])
-        NSLayoutConstraint.activate([
-            notesCard.widthAnchor.constraint(equalToConstant: 520),
-            scroll.heightAnchor.constraint(equalToConstant: 296),
-        ])
+        scroll.heightAnchor.constraint(equalToConstant: 320).isActive = true
+        notesScroll = scroll
         return container
+    }
+
+    /// Sizes the notes to the scroll view's real width — see the comment on
+    /// the missing autoresizing mask.
+    func syncNotesWidth() {
+        guard let notesScroll, let notesText else { return }
+        let available = notesScroll.contentSize.width
+        guard available > 20 else { return }
+        notesText.setFrameSize(NSSize(width: available, height: notesText.frame.height))
+        notesText.textContainer?.containerSize = NSSize(width: available - 4,
+                                                        height: CGFloat.greatestFiniteMagnitude)
     }
 
     func loadReleaseNotesIfNeeded() {
         guard !hasLoadedNotes else { return }
         hasLoadedNotes = true
+        notesSpinner.isHidden = false
         notesSpinner.startAnimation(nil)
 
         Task { [weak self] in
             guard let self, let checker = UpdateChecker() else { return }
-            defer { self.notesSpinner.stopAnimation(nil) }
+            defer {
+                self.notesSpinner.stopAnimation(nil)
+                self.notesSpinner.isHidden = true
+            }
             do {
                 let releases = try await checker.recentReleases()
                 let markdown = releases
                     .map { "## \($0.title)\n\n\($0.notes)" }
                     .joined(separator: "\n\n---\n\n")
+                self.syncNotesWidth()
                 self.notesText.textStorage?.setAttributedString(
                     ReleaseNotes.rendered(markdown.isEmpty ? "No releases yet." : markdown))
                 self.notesText.scroll(.zero)
@@ -517,11 +580,17 @@ extension SettingsWindowController {
         let button = NSButton(title: "  " + title, target: self, action: #selector(openLink(_:)))
         button.bezelStyle = .push
         button.controlSize = .large
-        button.image = Metrics.icon(symbol, role: .caption, describedAs: title)
+        button.image = Self.buttonIcon(symbol, title)
         button.imagePosition = .imageLeading
         button.identifier = NSUserInterfaceItemIdentifier(urlString)
         if primary { button.bezelColor = .controlAccentColor }
         return button
+    }
+
+    /// A symbol sized to sit beside large-button text rather than below it.
+    static func buttonIcon(_ symbol: String, _ description: String) -> NSImage? {
+        NSImage(systemSymbolName: symbol, accessibilityDescription: description)?
+            .withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
     }
 
     @objc func openLink(_ sender: NSButton) {
@@ -551,44 +620,41 @@ extension SettingsWindowController {
             "A fast photo viewer for macOS, in the shape of the one Picasa used to ship.")
         blurb.font = Typography.body
         blurb.textColor = .secondaryLabelColor
-        blurb.preferredMaxLayoutWidth = 300
+        blurb.preferredMaxLayoutWidth = 380
 
         let text = NSStackView(views: [name, meta, blurb])
         text.orientation = .vertical
         text.alignment = .leading
-        text.spacing = 4
-        text.setCustomSpacing(10, after: meta)
+        text.spacing = 6
+        text.setCustomSpacing(12, after: meta)
 
         let masthead = NSStackView(views: [icon, text])
         masthead.orientation = .horizontal
-        masthead.alignment = .top
-        masthead.spacing = 18
+        masthead.alignment = .centerY
+        masthead.spacing = 24
 
         let updateButton = NSButton(title: "  Check for Updates…", target: self,
                                     action: #selector(checkUpdatesTapped))
         updateButton.bezelStyle = .push
         updateButton.controlSize = .large
-        updateButton.image = Metrics.icon("arrow.triangle.2.circlepath", role: .caption,
-                                          describedAs: "Check for updates")
+        updateButton.image = Self.buttonIcon("arrow.triangle.2.circlepath", "Check for updates")
         updateButton.imagePosition = .imageLeading
 
-        let links = NSStackView(views: [
+        let links = buttonRow([
             link("GitHub", "chevron.left.forwardslash.chevron.right",
                  "https://github.com/jackharvest/Casa"),
             link("Releases", "shippingbox", "https://github.com/jackharvest/Casa/releases"),
+            NSView(),
             updateButton,
         ])
-        links.orientation = .horizontal
-        links.spacing = 10
 
-        let mastheadCard = card(masthead)
+        let mastheadCard = card(masthead, padding: NSEdgeInsets(top: 24, left: 22, bottom: 24, right: 24))
         let container = pane(title: "About",
                              subtitle: "Version, source, and where to find the rest.",
                              content: [mastheadCard, links])
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 92),
-            icon.heightAnchor.constraint(equalToConstant: 92),
-            mastheadCard.widthAnchor.constraint(equalToConstant: 520),
+            icon.widthAnchor.constraint(equalToConstant: 104),
+            icon.heightAnchor.constraint(equalToConstant: 104),
         ])
         return container
     }
@@ -596,7 +662,7 @@ extension SettingsWindowController {
     func buildSupportPane() -> NSView {
         let heart = BadgeView(symbol: "cup.and.saucer.fill",
                               tint: NSColor(red: 0.898, green: 0.412, blue: 0.122, alpha: 1),
-                              edge: 46)
+                              edge: 52)
 
         let title = NSTextField(labelWithString: "Casa is free, and stays free")
         title.font = Typography.heading
@@ -605,31 +671,29 @@ extension SettingsWindowController {
             "If it saved you some time, a coffee is a nice way to say so. Bug reports count too.")
         body.font = Typography.body
         body.textColor = .secondaryLabelColor
-        body.preferredMaxLayoutWidth = 360
+        body.preferredMaxLayoutWidth = 440
 
         let text = NSStackView(views: [title, body])
         text.orientation = .vertical
         text.alignment = .leading
-        text.spacing = 4
+        text.spacing = 6
 
         let inner = NSStackView(views: [heart, text])
         inner.orientation = .horizontal
-        inner.alignment = .top
-        inner.spacing = 14
+        inner.alignment = .centerY
+        inner.spacing = 20
 
-        let buttons = NSStackView(views: [
+        let buttons = buttonRow([
             link("Buy Me a Coffee", "cup.and.saucer",
                  "https://buymeacoffee.com/jackharvest", primary: true),
             link("Report an Issue", "ladybug", "https://github.com/jackharvest/Casa/issues"),
+            NSView(),
         ])
-        buttons.orientation = .horizontal
-        buttons.spacing = 10
 
         let supportCard = card(inner)
         let container = pane(title: "Support",
                              subtitle: "Thanks for trying it.",
                              content: [supportCard, buttons])
-        supportCard.widthAnchor.constraint(equalToConstant: 520).isActive = true
         return container
     }
 }

@@ -244,6 +244,38 @@ We already had all of these. The gaps we closed:
 **Not done:** a glide on image change and pan inertia. One user complained
 that motion slows review, so if these are added they should cancel on input.
 
+## 2j. Settings and update windows (0.10.2)
+
+Both read as cramped. The causes:
+
+- 10–14 pt margins everywhere, and cards hard-coded to 520 pt
+- caption-size (about 10 pt) sidebar symbols and release notes
+- a lone close button jammed against the sidebar's corner
+- buttons about 12 pt from the bottom edge
+
+Layout constants now live at the top of `SettingsWindowController`. There is
+one `contentWidth` that every card and button row fills, and an empty unified
+`NSToolbar` puts the close button inside the sidebar's glass.
+
+Traps hit along the way:
+
+- **A horizontal `NSStackView` nested in a vertical one ignored its
+  `edgeInsets`.** The File Types badges sat flush on the separators. Rows now
+  have an explicit height.
+- **The What's New text view overflowed to the right** because its
+  `autoresizingMask` added the scroll view's whole eventual width to a view
+  that started at zero size. This is the same trap as §2f.
+  `syncNotesWidth()` sets the width after layout.
+- **A stopped `NSProgressIndicator` still takes its row in a stack.** Hide it.
+- **`ReleaseNotes` rendered every blank line as an empty line**, stacking four
+  or five between releases. It now drops blank lines and lets paragraph
+  spacing carry the rhythm.
+
+**Open animation, late bitmap.** A 25 MB HEIC with no embedded preview takes
+more than 1 s on a cold launch. The 0.6 s deadline opened the veil first, and
+the photo then popped in without growing. `growPhotoIfReady()` now runs the
+grow on the first bitmap whenever it lands.
+
 ## 2h. The zoom clamp, and why it snapped
 
 Worth writing down because the symptom and the cause look unrelated.
@@ -370,20 +402,40 @@ Finder's Get Info route rather than opening a pane that cannot help.
 
 ## 2c. Regenerating README media
 
-```sh
-swiftc -O Scripts/MediaTools/WindowList.swift -o build/media-tools/WindowList
-swiftc -O Scripts/MediaTools/MakeGif.swift    -o build/media-tools/MakeGif
+The README sells the product and nothing else. It covers what people loved
+about Picasa's viewer: the instant pop-open, flipping through a folder,
+zoom-where-you-point, the filmstrip, windowed mode, and broad format support.
+Internals, test flags and release mechanics live here, not there.
 
-build/media-tools/WindowList Casa      # -> "<id> <x> <y> <w> <h> <name> | <title>"
-screencapture -x -o -l <id> out.png    # captures exactly that window
-build/media-tools/MakeGif out.gif 0.32 820 frames/*.png
+**Never record the real desktop.** It holds terminals, mail and meeting
+reminders. `Backdrop` covers the main display with a stock wallpaper, and Casa
+opens on top of it. Floating panels (an Outlook reminder, 23 Sep) still sit
+above everything. So recordings are cropped symmetrically about the screen
+centre (`x 440, w 2960` on the 3840-wide main display) and the corner stays out
+of frame. That crop also loses the X button, which is acceptable.
+
+```sh
+for t in WindowList MakeGif Backdrop FrameDump Wheel; do
+  swiftc -O Scripts/MediaTools/$t.swift -o build/media-tools/$t; done
+
+build/media-tools/Backdrop "/System/Library/Desktop Pictures/Sonoma.heic" &
+screencapture -x -V 5 -D 1 open.mov &      # video of the main display
+open -a build/Casa.app --args "$PWD/build/corpus-large/IMG_5.heic" --screen 0
+build/media-tools/FrameDump open.mov frames 30 1.7 3.2 440 30 2960 2040 880
+build/media-tools/MakeGif out.gif 0.033 820 frames/f0000.png@0.9 frames/f0001.png ...
 ```
 
-`WindowList` exists because guessing crop offsets wasted several rounds —
-`screencapture -l <windowid>` targets a window exactly and includes its shadow.
-For the navigation GIF, launch with `--keep-chrome --bench 60` and capture in a
-loop; the benchmark advances roughly every 180 ms, so consecutive captures are
-genuinely different photographs.
+- **Per-frame delays** (`frame.png@1.5`) let a GIF hold on a still moment
+  without repeating frames. That kept `open.gif` at 1.2 MB, and `zoom.gif` at
+  2 MB after dropping alternate frames. Smooth gradients compress badly in GIF.
+- **Wheel zoom:** `Wheel <x> <y> <ticks> <interval> [±1]` posts real
+  mouse-wheel ticks. `--demo-zoom` is useless for this, because it applies nine
+  steps in one frame.
+- **Arrow keys and menus** are driven with `osascript` through System Events.
+- **Update window screenshot:** copy the app, set `CFBundleShortVersionString`
+  to an old version with `plutil`, ad-hoc re-sign it, then Check for Updates.
+- `screencapture -l <id>` (from `WindowList`) captures a single window with its
+  shadow on transparency.
 
 ## 3. Commands
 

@@ -114,10 +114,10 @@ enum Glass {
 /// wider range and more air.
 @MainActor
 enum Typography {
-    static var largeTitle: NSFont { .systemFont(ofSize: 26, weight: .bold) }
-    static var title: NSFont { .systemFont(ofSize: 19, weight: .semibold) }
-    static var heading: NSFont { .systemFont(ofSize: 13, weight: .semibold) }
-    static var body: NSFont { .systemFont(ofSize: 13, weight: .regular) }
-    static var caption: NSFont { .systemFont(ofSize: 11.5, weight: .regular) }
-    static var mono: NSFont { .monospacedDigitSystemFont(ofSize: 11.5, weight: .regular) }
+    static var largeTitle: NSFont { .systemFont(ofSize: 28, weight: .bold) }
+    static var title: NSFont { .systemFont(ofSize: 20, weight: .semibold) }
+    static var heading: NSFont { .systemFont(ofSize: 14, weight: .semibold) }
+    static var body: NSFont { .systemFont(ofSize: 13.5, weight: .regular) }
+    static var caption: NSFont { .systemFont(ofSize: 12, weight: .regular) }
+    static var mono: NSFont { .monospacedDigitSystemFont(ofSize: 12, weight: .regular) }
 }

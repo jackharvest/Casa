@@ -15,9 +15,14 @@ enum ReleaseNotes {
 
     static func rendered(_ markdown: String) -> NSAttributedString {
         let output = NSMutableAttributedString()
-        let body = Metrics.font(.caption)
-        let heading = NSFont.systemFont(ofSize: Metrics.pointSize(.caption) * 1.15, weight: .semibold)
-        let indent = Metrics.spacing(3)
+        // Body size, not caption: notes are read, and at caption size a
+        // paragraph of them was a strain on anything but a laptop.
+        let body = Metrics.font(.control)
+        let heading = NSFont.systemFont(ofSize: Metrics.pointSize(.control) * 1.15, weight: .semibold)
+        let indent = Metrics.spacing(3.5)
+        /// Set by a rule, so the next heading opens a new section with room
+        /// above it.
+        var afterRule = false
 
         for rawLine in markdown.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -25,23 +30,23 @@ enum ReleaseNotes {
             // Machine-readable markers some releases carry; never shown.
             if line.hasPrefix("<!--") { continue }
 
-            if line.isEmpty {
-                output.append(NSAttributedString(string: "\n"))
-                continue
-            }
+            // Blank lines are dropped: paragraph spacing carries the rhythm.
+            // Rendering each one as an empty line stacked four or five of
+            // them between releases, which read as a gap in the page.
+            if line.isEmpty { continue }
 
             if line.hasPrefix("---") || line.hasPrefix("***") {
-                let rule = NSMutableParagraphStyle()
-                rule.paragraphSpacingBefore = Metrics.spacing(1)
-                output.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: rule]))
+                afterRule = true
                 continue
             }
 
             // Headings: the marker is dropped and the weight carries the level.
             if let stripped = line.dropHashes() {
                 let style = NSMutableParagraphStyle()
-                style.paragraphSpacingBefore = output.length == 0 ? 0 : Metrics.spacing(2)
-                style.paragraphSpacing = Metrics.spacing(0.5)
+                style.paragraphSpacingBefore = output.length == 0 ? 0
+                    : Metrics.spacing(afterRule ? 5 : 3)
+                style.paragraphSpacing = Metrics.spacing(1.5)
+                afterRule = false
                 output.append(inline(stripped, font: heading, color: .labelColor, style: style))
                 output.append(NSAttributedString(string: "\n"))
                 continue
@@ -52,8 +57,9 @@ enum ReleaseNotes {
             if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
                 let style = NSMutableParagraphStyle()
                 style.headIndent = indent
-                style.firstLineHeadIndent = Metrics.spacing(1.5)
-                style.paragraphSpacing = Metrics.spacing(0.5)
+                style.firstLineHeadIndent = Metrics.spacing(1)
+                style.paragraphSpacing = Metrics.spacing(1.25)
+                style.lineSpacing = 2
                 style.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
 
                 // The bullet and tab are prepended *after* parsing. Running the
@@ -72,8 +78,8 @@ enum ReleaseNotes {
             }
 
             let style = NSMutableParagraphStyle()
-            style.paragraphSpacing = Metrics.spacing(0.5)
-            style.lineSpacing = 1.5
+            style.paragraphSpacing = Metrics.spacing(1.25)
+            style.lineSpacing = 2
             output.append(inline(line, font: body, color: .secondaryLabelColor, style: style))
             output.append(NSAttributedString(string: "\n"))
         }

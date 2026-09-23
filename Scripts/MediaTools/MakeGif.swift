@@ -1,6 +1,9 @@
 // Assembles an animated GIF from a sequence of PNG frames, for README media.
 //
 // usage: MakeGif <out.gif> <delay-seconds> <max-width> <frame.png>...
+//
+// A frame may carry its own delay as `frame.png@1.5`, so a GIF can hold on a
+// still moment without repeating the frame, and play motion in real time.
 import ImageIO
 import UniformTypeIdentifiers
 import Foundation
@@ -14,7 +17,11 @@ guard arguments.count >= 5 else {
 let out = URL(fileURLWithPath: arguments[1])
 let delay = Double(arguments[2]) ?? 0.25
 let maxWidth = Int(arguments[3]) ?? 900
-let frames = arguments.dropFirst(4).map { URL(fileURLWithPath: $0) }
+let frames: [(url: URL, delay: Double)] = arguments.dropFirst(4).map { argument in
+    let parts = argument.split(separator: "@", maxSplits: 1).map(String.init)
+    let own = parts.count == 2 ? Double(parts[1]) : nil
+    return (URL(fileURLWithPath: parts[0]), own ?? delay)
+}
 
 guard let destination = CGImageDestinationCreateWithURL(
     out as CFURL, UTType.gif.identifier as CFString, frames.count, nil) else { exit(1) }
@@ -25,7 +32,7 @@ CGImageDestinationSetProperties(destination, [
 
 var added = 0
 for frame in frames {
-    guard let source = CGImageSourceCreateWithURL(frame as CFURL, nil),
+    guard let source = CGImageSourceCreateWithURL(frame.url as CFURL, nil),
           let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
               kCGImageSourceCreateThumbnailFromImageAlways: true,
               kCGImageSourceThumbnailMaxPixelSize: maxWidth,
@@ -33,7 +40,7 @@ for frame in frames {
           ] as CFDictionary)
     else { continue }
     CGImageDestinationAddImage(destination, image, [
-        kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: delay],
+        kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFUnclampedDelayTime: frame.delay],
     ] as CFDictionary)
     added += 1
 }

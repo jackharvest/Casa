@@ -23,10 +23,13 @@ final class SidebarRow: NSButton {
         alignment = .left
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        title = "  " + tab.title
+        title = "   " + tab.title
         font = Typography.heading
-        image = Metrics.icon(tab.symbol, role: .caption, describedAs: tab.title)
-        heightAnchor.constraint(equalToConstant: 32).isActive = true
+        // A fixed, legible symbol size. At the caption role these were about
+        // ten points and read as specks beside the labels.
+        image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium))
+        heightAnchor.constraint(equalToConstant: 38).isActive = true
         refresh()
     }
 
@@ -47,7 +50,7 @@ final class SidebarRow: NSButton {
     override func mouseExited(with event: NSEvent) { isHovering = false }
 
     private func refresh() {
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = 10
         layer?.cornerCurve = .continuous
 
         let background: NSColor

@@ -84,6 +84,11 @@ final class ViewerWindow: NSWindow {
 
     /// Set between ordering in and the first bitmap.
     private var awaitingReveal = false
+    /// Whether the photograph has made its entrance. The veil can open on the
+    /// deadline before any bitmap exists — a large HEIC with no embedded
+    /// preview takes over a second on a cold launch — and the photo must
+    /// still grow in when it lands rather than popping into place.
+    private var hasMadeEntrance = false
 
     private var canvas: ImageCanvasView? {
         contentViewController?.view.subviews.first { $0 is ImageCanvasView } as? ImageCanvasView
@@ -115,15 +120,13 @@ final class ViewerWindow: NSWindow {
         }
     }
 
-    /// Called when the first bitmap lands, and by the deadline. Whichever
-    /// comes first opens the window; the other finds nothing to do.
+    /// Called when a bitmap lands, and by the deadline. Whichever comes first
+    /// opens the window; the photograph grows in whenever it is first there.
     func revealIfWaiting() {
+        growPhotoIfReady()
         guard awaitingReveal, !isDismissing else { return }
         awaitingReveal = false
 
-        if let canvas {
-            canvas.animateArrival(from: origin(in: canvas), duration: Self.openDuration)
-        }
         NSAnimationContext.runAnimationGroup { context in
             // The veil is up within a few frames, so the whole flight of the
             // photograph is visible rather than hidden behind a fade.
@@ -131,6 +134,13 @@ final class ViewerWindow: NSWindow {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 1
         }
+    }
+
+    private func growPhotoIfReady() {
+        guard !hasMadeEntrance, !isDismissing, let canvas, canvas.hasImage,
+              !Accommodations.current.reduceMotion else { return }
+        hasMadeEntrance = true
+        canvas.animateArrival(from: origin(in: canvas), duration: Self.openDuration)
     }
 
     /// The reverse, then actually close.

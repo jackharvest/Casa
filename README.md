@@ -1,233 +1,135 @@
 <div align="center">
 
-<img src="docs/assets/icon.png" alt="Casa" width="148">
+<img src="docs/assets/icon.png" alt="Casa" width="128">
 
 # Casa
 
-**A fast photo viewer for macOS.**
+**A fast, free photo viewer for the Mac, in the spirit of the old Picasa Photo Viewer.**
 
-<img src="docs/assets/viewer.png" alt="Casa showing a photo with the thumbnail rail" width="100%">
+[**Download for macOS**](https://github.com/jackharvest/Casa/releases/latest)
+
+<img src="docs/assets/viewer.png" alt="Casa showing a photo over a dimmed desktop, with the toolbar and filmstrip below" width="100%">
 
 </div>
 
 ---
 
-Picasa's photo viewer opened the instant you double-clicked a photo, let you
-walk the folder with the arrow keys, and disappeared when you pressed Escape.
-Nothing on macOS does that. Preview doesn't cache the next image, so every arrow
-press is a fresh decode, and it won't step outside the files you opened.
+Remember Picasa's photo viewer? You double-clicked a photo and it was just
+*there*, floating over your desktop. The arrow keys flipped through the folder
+instantly. The scroll wheel zoomed right where you pointed. Press Escape and it
+was gone.
 
-Casa is that viewer, for macOS.
+Nothing on the Mac has felt like that since. Casa does.
 
-## Arrow keys
-
-<div align="center">
-<img src="docs/assets/navigation.gif" alt="Scrubbing through a folder with the arrow keys" width="90%">
-</div>
-
-The next photo appears in about a millisecond. Casa decodes the neighbours ahead
-of time at a small size, so holding an arrow key scrubs smoothly, and each photo
-sharpens a moment later. The rail slides under a fixed centre so you always know
-where you are.
+## It pops open instantly
 
 <div align="center">
-<img src="docs/assets/filmstrip.png" alt="The thumbnail rail, centred on the current image" width="90%">
+<img src="docs/assets/open.gif" alt="A photo zooming open from the middle of the screen, then closing back into it" width="90%">
 </div>
 
-## Two ways to look
+Double-click a photo. The screen dims and the photo zooms out of the middle,
+with your desktop still right there behind it. Press Escape and it shrinks
+away.
 
-Casa opens filling the screen with the desktop dimmed behind it. Click the empty
-space beside the photo and it drops into an ordinary window hugging the image,
-rail and all. Click the surround again to go back.
+## Flip through the whole folder
 
 <div align="center">
-<img src="docs/assets/windowed.png" alt="Casa in windowed mode, the window hugging the photo" width="56%">
+<img src="docs/assets/navigation.gif" alt="Arrow keys flipping through a folder, the filmstrip sliding along underneath" width="90%">
 </div>
 
-## It follows Finder's sort order
+Tap the arrow keys and the next photo is already there. There's no waiting,
+even on huge camera files. The filmstrip slides along underneath: scroll over
+it to fly through a folder, or click any thumbnail to jump straight to it.
 
-No other Mac viewer does this. Sort a folder by date added, open the third
-photo, and everything else walks it alphabetically.
+Sort a folder in Finder, and Casa can walk it in that same order
+(**View › Use Finder's Sort Order**).
 
-Turn it on in **View › Use Finder's Sort Order**. Finder reports its sort for
-list and icon views. Column and gallery views don't expose it, so those fall
-back to name order, which is what Finder does there anyway.
-
-## It updates itself
+## Zoom right where you point
 
 <div align="center">
-<img src="docs/assets/update.png" alt="Casa's update window showing a new version" width="70%">
+<img src="docs/assets/zoom.gif" alt="The scroll wheel zooming smoothly into the spot under the pointer, showing the zoom percentage" width="90%">
 </div>
 
-Casa checks GitHub once a day and stays quiet unless there's something new. It
-installs in place, then relaunches and reopens the photo you were looking at.
+Scroll the wheel and it zooms smoothly into whatever is under your pointer. The
+percentage shows beside it. Double-click to zoom in on a spot, and double-click
+again to see the whole photo.
 
-Downloads are checked against an Ed25519 signature before anything is replaced.
-The signing key isn't in this repo, so someone who got into the GitHub account
-still couldn't push an update Casa would accept. There's a SHA-256 check
-alongside it. If any of it fails, nothing is touched.
+## Just enough buttons
 
-## Formats
+Zoom, previous and next, a slideshow, rotate, and show in Finder. Everything
+fades away when you stop moving the mouse, so it's just you and the photo.
+Rotating saves to the file, without losing any quality.
 
-Everything ImageIO can read: 62 types, 70 extensions. That includes about 30
-camera RAW formats (CR2/CR3, NEF, ARW, RAF, ORF, RW2, PEF, DNG, IIQ, 3FR),
-HEIC, AVIF, WebP, JPEG XL, JPEG 2000, PSD, TGA, EXR, Radiance HDR and DICOM.
+## Full screen, or a window
 
-Plus three things ImageIO doesn't do:
+Click the dark area beside the photo, or press Return, and Casa turns into a
+normal window that hugs the picture. Press Return again to go back to full
+screen.
 
-- **PDF**, re-rendered as you zoom instead of magnified, so it stays sharp
-- **SVG**, same
-- **Video**, with a poster frame in the rail
+<div align="center">
+<img src="docs/assets/windowed.png" alt="Casa as a window hugging the photo" width="56%">
+</div>
 
-Broken files get refused rather than crashing anything.
+## Opens just about everything
 
-## Playback
-
-Animated GIF, APNG, WebP, HEICS and video. Animations run as a single Core
-Animation keyframe animation, so a looping GIF costs no CPU.
-
-One setting in **View › Playback**: Click to Play (default), Play Automatically
-(Muted), or Play Automatically (With Sound).
+JPEG, HEIC, PNG, GIF, WebP, AVIF, TIFF, PSD, and RAW files from nearly every
+camera brand. PDF and SVG stay sharp however far you zoom. Animated GIFs and
+videos play. Transparent images show a checkerboard behind them, so you can
+see the edges.
 
 ## Keyboard
 
 | Key | |
 |---|---|
-| `←` `→` | Previous / next |
-| `↑` `↓` | Zoom in / out, as in Picasa |
-| `⌥` + arrow, `Page Up/Down` | Jump 10 |
-| `Home` / `End` | First / last |
-| `Space` | Play, or next if there's nothing to play |
-| `0` | Fit to window |
+| `←` `→` | Previous / next photo |
+| `↑` `↓` | Zoom in / out |
 | `1` | Actual size, or back to fit |
 | `S` | Slideshow |
-| `Return` | Switch between full-screen and a window |
-| Mouse wheel | Zoom to the pointer, smoothly |
-| `⌃` + wheel | Previous / next |
-| Trackpad scroll / pinch | Pan / zoom |
-| Double-click | Fit or 1:1, anchored where you clicked |
-| Click beside the photo | Switch between full-screen and a window |
-| `⌘C` / `⌥⌘C` / `⌘R` | Copy image / copy path / reveal in Finder |
-| `⇧⌘[` `⇧⌘]` | Rotate, saved to the file |
-| `⇧⌘D` | Hide the Dock for a bigger picture |
+| `Space` | Next photo, or play a video |
+| `Return` | Full screen or window |
+| `⇧⌘[` `⇧⌘]` | Rotate |
+| `⌘C` | Copy the photo |
+| `⌘R` | Show in Finder |
 | `Esc` | Close |
 
-Mouse wheel and trackpad do different things on purpose. Two-finger scroll means
-pan everywhere else on macOS, and a wheel meant zoom in Picasa.
-
-Full list in [`docs/keyboard.md`](docs/keyboard.md).
+Every shortcut is in [`docs/keyboard.md`](docs/keyboard.md).
 
 ## Install
 
-Download the `.dmg` from
-[Releases](https://github.com/jackharvest/Casa/releases), open it, and drag Casa
-into Applications.
+1. Download the `.dmg` from
+   [Releases](https://github.com/jackharvest/Casa/releases/latest), open it,
+   and drag Casa into Applications.
+
+   <img src="docs/assets/dmg.png" alt="The Casa disk image" width="60%">
+
+2. Open Casa once. The first time, macOS will say it can't check the
+   developer. Go to **System Settings › Privacy & Security** and click
+   **Open Anyway**. On older versions of macOS, right-click Casa and choose
+   **Open** instead.
+
+3. Click **Make Casa the Default**, so double-clicking a photo opens Casa.
+
+   <img src="docs/assets/settings.png" alt="Casa's settings window, with the button to make it the default photo viewer" width="76%">
+
+That's it. Casa keeps itself up to date and tells you when there's something
+new.
 
 <div align="center">
-<img src="docs/assets/dmg.png" alt="The Casa disk image" width="72%">
+<img src="docs/assets/update.png" alt="Casa's update window" width="56%">
 </div>
 
-The app isn't notarised yet, so the first launch needs a right-click and Open.
-macOS remembers after that.
+Requires macOS 14 or later.
 
-Then launch it once. Casa only does anything when you double-click a photo, so
-the window it opens on its own is mostly about getting it wired up as the app
-that receives those double-clicks. It's built on `NSGlassEffectView`, so on
-macOS 26 and later it's real Liquid Glass, and falls back to vibrancy before
-that:
+## For developers
 
-<div align="center">
-<img src="docs/assets/settings.png" alt="Casa's settings window" width="76%">
-</div>
-
-macOS asks you to confirm each file type separately, so Casa tells you how many
-dialogs to expect before it starts. PDF is unchecked by default because you
-probably want Preview for documents.
-
-The `.zip` next to the `.dmg` is what the updater uses. You don't need it.
-
-## Build
-
-There's no Xcode project. SwiftPM builds the binary and a script wraps it in a
-bundle.
+Casa is written in Swift and builds with SwiftPM:
 
 ```sh
-Scripts/build-app.sh release          # -> build/Casa.app
-open -a build/Casa.app ~/Pictures/some.jpg
+Scripts/build-app.sh release      # -> build/Casa.app
 ```
 
-## Test
-
-The test corpus is generated from files macOS already ships, so nothing large
-lives in the repo.
-
-```sh
-Scripts/make-corpus.sh                # -> build/corpus, build/corpus-large
-
-# Format coverage. Non-zero exit on regression.
-build/Casa.app/Contents/MacOS/Casa --selftest build/corpus
-# 33/33 displayable · 2 animated · 2 video · 4/4 malformed rejected safely
-
-# Zoom anchoring, dismiss regions, version ordering, SHA-256
-build/Casa.app/Contents/MacOS/Casa --selfcheck
-
-# Navigation benchmark
-build/Casa.app/Contents/MacOS/Casa build/corpus-large/IMG_1.heic --bench 40
-
-log show --last 2m --info --debug \
-    --predicate 'subsystem == "com.jackharvest.casa"' --style compact
-```
-
-Other flags: `--keep-chrome`, `--screen <n>`, `--migrate-screens <a>,<b>`,
-`--settings <tab>`, `--finder-sort-probe <dir>`.
-
-## Releasing
-
-```sh
-Scripts/keygen.sh                     # once, makes the signing key
-echo 0.7.0 > VERSION
-Scripts/release.sh --dry-run          # builds and signs, publishes nothing
-Scripts/release.sh
-```
-
-`VERSION` is the only place the version lives. It gets stamped into the bundle
-at build time, and the build number is the commit count.
-
-The icon is drawn in code (`Scripts/IconTools/MakeIcon.swift`), so all ten icon
-sizes come from one source. The DMG background is generated the same way.
-
-## How it works
-
-**Decode ladder.** Five steps, cheapest first: a rail thumbnail, the camera's
-embedded preview, a small decode, screen resolution, and the full image only
-once you zoom past it. Each one paints as it lands, so the window is never
-blank.
-
-**Memory.** One slot for the sharp image, plus count-limited sets of previews
-and thumbnails. Nothing else is kept, so there's no budget to get wrong.
-
-**Concurrency.** Screen-resolution decodes run one at a time, and thumbnail
-decodes wait for them. Setting a low priority isn't enough; it changes who wins,
-not how many are running.
-
-**Measurement.** Twenty findings in
-[`docs/performance-log.md`](docs/performance-log.md), each one something that
-turned out not to be true. Asking ImageIO for a smaller image doesn't give you a
-cheaper decode. A byte-counting cache leaks, because Core Animation's GPU copies
-aren't in the count.
-
-## Docs
-
-- [`docs/NOTES.md`](docs/NOTES.md) — state, commands, open items, gotchas
-- [`docs/performance-log.md`](docs/performance-log.md) — what measurement changed
-- [`docs/keyboard.md`](docs/keyboard.md) — every shortcut
-- [`docs/landscape.html`](docs/landscape.html) — what else is out there and why
-  this exists
-
-## Status
-
-Early, but it works. Cold launch is about 465 ms, which is the one number still
-short of where I want it.
+Everything else, including how it works, testing and releasing, is in
+[`docs/NOTES.md`](docs/NOTES.md).
 
 ---
 
@@ -241,3 +143,6 @@ measured on real hardware.
 
 [MIT licensed](LICENSE). If it saved you time,
 [buy me a coffee](https://buymeacoffee.com/jackharvest).
+
+<sub>Casa is not affiliated with or endorsed by Google. Picasa is a trademark of
+Google LLC.</sub>

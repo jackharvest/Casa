@@ -70,7 +70,10 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
     // MARK: - Construction
 
     private func build() {
-        let width = max(460, Metrics.pointSize(.control) * 34)
+        // Roomier than it was: at 460 pt with 16–20 pt margins the buttons sat
+        // almost on the bottom edge and the notes wrapped every other word.
+        let width = max(560, Metrics.pointSize(.control) * 42)
+        let side: CGFloat = 32
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 260),
                               styleMask: [.titled, .closable, .fullSizeContentView],
@@ -104,12 +107,12 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         heroBox.addSubview(heroIcon)
         heroBox.addSubview(spinner)
 
-        titleLabel.font = NSFont.systemFont(ofSize: Metrics.pointSize(.title) * 1.15, weight: .semibold)
+        titleLabel.font = Typography.title
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byWordWrapping
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        subtitleLabel.font = Metrics.font(.caption)
+        subtitleLabel.font = Typography.body
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.maximumNumberOfLines = 2
         subtitleLabel.lineBreakMode = .byWordWrapping
@@ -118,12 +121,12 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
         titleStack.orientation = .vertical
         titleStack.alignment = .leading
-        titleStack.spacing = Metrics.spacing(0.5)
+        titleStack.spacing = 4
 
         let header = NSStackView(views: [heroBox, titleStack])
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = Metrics.spacing(3)
+        header.spacing = 18
 
         // Release notes.
         //
@@ -135,7 +138,7 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         // The card's padding and the scroller both eat into the text's width.
         // Starting the container too wide leaves lines clipped on the right,
         // because `widthTracksTextView` only narrows from the frame it is given.
-        let notesWidth = width - Metrics.spacing(10) - 20 - 18
+        let notesWidth = width - side * 2 - 32 - 18
         notesView.frame = NSRect(x: 0, y: 0, width: notesWidth, height: 240)
         notesView.minSize = .zero
         notesView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
@@ -172,34 +175,33 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
         progressBar.maxValue = 1
         progressBar.translatesAutoresizingMaskIntoConstraints = false
 
-        progressLabel.font = Metrics.font(.caption)
         progressLabel.textColor = .secondaryLabelColor
         // Tabular figures so the byte counts do not jitter as they tick.
-        progressLabel.font = NSFont.monospacedDigitSystemFont(
-            ofSize: Metrics.pointSize(.caption), weight: .regular)
+        progressLabel.font = Typography.mono
 
         let progressStack = NSStackView(views: [progressBar, progressLabel])
         progressStack.orientation = .vertical
         progressStack.alignment = .leading
-        progressStack.spacing = Metrics.spacing(1)
+        progressStack.spacing = 8
 
         buttonRow.orientation = .horizontal
         buttonRow.alignment = .centerY
-        buttonRow.spacing = Metrics.spacing(2)
+        buttonRow.spacing = 12
 
         let notesPadding = NSView()
         notesPadding.translatesAutoresizingMaskIntoConstraints = false
         notesPadding.addSubview(notesScroll)
-        Glass.pin(notesScroll, to: notesPadding, inset: 10)
-        notesCard = Glass.panel(notesPadding, cornerRadius: 14)
+        Glass.pin(notesScroll, to: notesPadding, inset: 12)
+        notesCard = Glass.panel(notesPadding, cornerRadius: 18)
 
         rootStack = NSStackView(views: [header, notesCard, progressStack, buttonRow])
         rootStack.orientation = .vertical
         rootStack.alignment = .leading
-        rootStack.spacing = Metrics.spacing(3)
+        rootStack.spacing = 22
         rootStack.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.edgeInsets = NSEdgeInsets(top: Metrics.spacing(5), left: Metrics.spacing(5),
-                                            bottom: Metrics.spacing(4), right: Metrics.spacing(5))
+        // The top clears the close button; the bottom matches the sides so
+        // the buttons have as much air below them as the card has beside it.
+        rootStack.edgeInsets = NSEdgeInsets(top: 44, left: side, bottom: 30, right: side)
         material.addSubview(rootStack)
 
         let hero = Metrics.hitTarget(.hero)
@@ -218,9 +220,8 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
             spinner.centerXAnchor.constraint(equalTo: heroBox.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: heroBox.centerYAnchor),
 
-            notesCard.widthAnchor.constraint(equalTo: rootStack.widthAnchor,
-                                             constant: -Metrics.spacing(10)),
-            notesScroll.heightAnchor.constraint(equalToConstant: Metrics.pointSize(.caption) * 12),
+            notesCard.widthAnchor.constraint(equalTo: rootStack.widthAnchor, constant: -side * 2),
+            notesScroll.heightAnchor.constraint(equalToConstant: Metrics.pointSize(.control) * 11),
             progressBar.widthAnchor.constraint(equalTo: notesCard.widthAnchor),
             buttonRow.trailingAnchor.constraint(equalTo: notesCard.trailingAnchor),
         ])
