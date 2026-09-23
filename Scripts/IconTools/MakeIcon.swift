@@ -1,9 +1,16 @@
 // Draws Casa's app icon procedurally at any size.
 //
-// The icon is a squircle glass tray holding a fan of translucent colour
-// blades — film slides, or the colour filters you'd fan over a light table.
-// Everything is parameterised as a fraction of the canvas, so the same code
-// draws a crisp 16 px menu icon and a 1024 px master.
+// A white continuous-corner tile on Apple's icon grid holding a six-blade
+// iris. The blades are white; a full-spectrum sweep sits beneath them and
+// shows only through the seams and the opening, so every hue appears once.
+//
+// Every coordinate is derived from the tile's centre, so the mark is centred
+// by construction rather than nudged into place by eye.
+//
+// It is deliberately *not* a ring of coloured blades. That construction — a
+// shutter whose segments are the colours — is Picasa's registered design, and
+// Casa's lineage makes a lookalike the one thing it cannot afford. Here the
+// colour is light behind the iris, not the iris itself.
 //
 // usage: MakeIcon <size> <out.png>
 import AppKit
@@ -12,16 +19,15 @@ import Foundation
 
 // MARK: - Geometry
 
-/// A superellipse — Apple's rounded-rect corners are continuous-curvature, not
-/// circular arcs, and a plain `roundedRect` reads as visibly wrong beside real
-/// macOS icons. `n = 5` is very close to the system shape.
-func squircle(in rect: CGRect, n: Double = 5, segments: Int = 512) -> CGPath {
+/// A superellipse. Apple's icon corners are continuous-curvature, and a plain
+/// rounded rect reads as subtly wrong beside real macOS icons. `n = 5` is very
+/// close to the system shape.
+func squircle(in rect: CGRect, n: Double = 5, segments: Int = 720) -> CGPath {
     let path = CGMutablePath()
     let a = Double(rect.width) / 2, b = Double(rect.height) / 2
     let cx = Double(rect.midX), cy = Double(rect.midY)
     let exponent = 2 / n
-
-    for step in 0...segments {
+    for step in 0..<segments {
         let t = Double(step) / Double(segments) * 2 * .pi
         let cosT = cos(t), sinT = sin(t)
         let x = cx + a * (cosT < 0 ? -1 : 1) * pow(abs(cosT), exponent)
@@ -33,222 +39,161 @@ func squircle(in rect: CGRect, n: Double = 5, segments: Int = 512) -> CGPath {
     return path
 }
 
-/// One blade: a tapered, rounded paddle that is narrow at the pivot and wide
-/// at the tip, rotated about the pivot.
-///
-/// Built as a rounded path in blade-local space (pivot at the origin, pointing
-/// along +x) and then transformed, which keeps the taper and the corner radii
-/// independent of the angle.
-func blade(pivot: CGPoint, angle: Double, length: CGFloat,
-           halfWidthNear: CGFloat, halfWidthFar: CGFloat, corner: CGFloat) -> CGPath {
-    let local = CGMutablePath()
-    let nearX: CGFloat = 0, farX = length
-
-    // Corners, near-bottom → far-bottom → far-top → near-top.
-    let points = [
-        CGPoint(x: nearX, y: -halfWidthNear),
-        CGPoint(x: farX, y: -halfWidthFar),
-        CGPoint(x: farX, y: halfWidthFar),
-        CGPoint(x: nearX, y: halfWidthNear),
-    ]
-
-    local.move(to: midpoint(points[3], points[0]))
-    for index in 0..<4 {
-        let current = points[index]
-        let next = points[(index + 1) % 4]
-        local.addArc(tangent1End: current, tangent2End: next, radius: corner)
-    }
-    local.closeSubpath()
-
-    var transform = CGAffineTransform(translationX: pivot.x, y: pivot.y)
-        .rotated(by: angle * .pi / 180)
-    return local.copy(using: &transform) ?? local
+func point(_ centre: CGPoint, _ radius: CGFloat, _ degrees: CGFloat) -> CGPoint {
+    let r = degrees * .pi / 180
+    return CGPoint(x: centre.x + radius * cos(r), y: centre.y + radius * sin(r))
 }
 
-func midpoint(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
-    CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+// MARK: - Colour
+
+let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
+    CGColor(red: r, green: g, blue: b, alpha: a)
 }
+func gray(_ v: CGFloat, _ a: CGFloat = 1) -> CGColor { rgb(v, v, v, a) }
 
-// MARK: - Artwork
+/// Six hues in wheel order, each used once.
+let spectrum: [CGColor] = [
+    rgb(0.98, 0.27, 0.25),   // red
+    rgb(1.00, 0.58, 0.05),   // orange
+    rgb(1.00, 0.80, 0.04),   // yellow
+    rgb(0.20, 0.76, 0.36),   // green
+    rgb(0.05, 0.50, 1.00),   // blue
+    rgb(0.62, 0.33, 0.90),   // purple
+]
 
-/// The colour fan, lifted from the reference artwork by
-/// `Scripts/IconTools/ExtractFan.swift` and stored as two layers:
-///
-/// - `fan-multiply` is what the glass does to whatever is behind it
-/// - `fan-light` is the specular edges, which are brighter than the ground
-///
-/// Compositing them in that order over a redrawn tray reproduces the original
-/// where the tray matches and adapts where it doesn't. Drawing the fan
-/// procedurally got the structure right but never the subtlety — the real
-/// artwork has irregularities in every blade that are not worth deriving.
-func loadLayer(_ name: String) -> CGImage? {
-    let candidates = [
-        URL(fileURLWithPath: "Resources/Art/\(name).png"),
-        URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Resources/Art/\(name).png"),
-    ]
-    for url in candidates where FileManager.default.fileExists(atPath: url.path) {
-        if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) {
-            return image
-        }
-    }
-    return nil
-}
-
-// MARK: - Render
+// MARK: - Setup
 
 let size = CGFloat(Int(CommandLine.arguments[1]) ?? 1024)
 let out = URL(fileURLWithPath: CommandLine.arguments[2])
 
 guard let context = CGContext(data: nil, width: Int(size), height: Int(size),
-                              bitsPerComponent: 8, bytesPerRow: 0,
-                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitsPerComponent: 8, bytesPerRow: 0, space: sRGB,
                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
 else { fatalError("cannot create context") }
-
 context.setAllowsAntialiasing(true)
-context.interpolationQuality = .high
+context.setShouldAntialias(true)
 
-func gray(_ value: CGFloat, _ alpha: CGFloat = 1) -> CGColor {
-    CGColor(red: value, green: value, blue: value, alpha: alpha)
+func linear(_ colors: [CGColor], from: CGPoint, to: CGPoint) {
+    guard let gradient = CGGradient(colorsSpace: sRGB, colors: colors as CFArray, locations: nil)
+    else { return }
+    context.drawLinearGradient(gradient, start: from, end: to,
+                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
 }
-func rgba(_ c: (r: CGFloat, g: CGFloat, b: CGFloat), _ alpha: CGFloat) -> CGColor {
-    CGColor(red: c.r, green: c.g, blue: c.b, alpha: alpha)
-}
 
-// The macOS icon grid: the body occupies ~82% of the canvas, leaving room for
-// the shadow so icons of different shapes optically match in the Dock.
-let bodyInset = size * 0.076
-let body = CGRect(x: bodyInset, y: bodyInset,
-                  width: size - bodyInset * 2, height: size - bodyInset * 2)
-let bodyPath = squircle(in: body)
+// Apple's macOS grid: an 824-unit body on a 1024-unit canvas. Matching it is
+// what makes the icon sit at the same visual weight as its Dock neighbours.
+let inset = size * 100 / 1024
+let tile = CGRect(x: inset, y: inset, width: size - inset * 2, height: size - inset * 2)
+let tilePath = squircle(in: tile)
+let centre = CGPoint(x: tile.midX, y: tile.midY)
+let unit = tile.width
 
-// --- drop shadow under the whole tray ---------------------------------------
+// MARK: - Tile
+
+// Grid shadow: soft and short, so it grounds the tile without a halo.
 context.saveGState()
-context.setShadow(offset: CGSize(width: 0, height: -size * 0.012),
-                  blur: size * 0.040, color: gray(0.35, 0.34))
-context.addPath(bodyPath)
-context.setFillColor(gray(1, 1))
+context.setShadow(offset: CGSize(width: 0, height: -size * 0.010),
+                  blur: size * 0.022, color: gray(0, 0.28))
+context.addPath(tilePath)
+context.setFillColor(gray(1))
 context.fillPath()
 context.restoreGState()
 
-// --- the glass slab ---------------------------------------------------------
 context.saveGState()
-context.addPath(bodyPath)
+context.addPath(tilePath)
+context.clip()
+linear([gray(1.0), rgb(0.925, 0.933, 0.945)],
+       from: CGPoint(x: centre.x, y: tile.maxY), to: CGPoint(x: centre.x, y: tile.minY))
+context.restoreGState()
+
+// MARK: - Iris
+
+let radius = unit * 0.30
+let disc = CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2)
+let bladeCount = 6
+let step = 360 / CGFloat(bladeCount)
+let turn: CGFloat = 90                 // a vertex straight up
+let hole = unit * 0.10                 // opening's circumradius
+let seamWidth = max(1, unit * 0.045)
+
+// A soft shadow under the whole disc, so white blades lift off a white tile.
+context.saveGState()
+context.setShadow(offset: CGSize(width: 0, height: -unit * 0.008), blur: unit * 0.035,
+                  color: gray(0, 0.18))
+context.addEllipse(in: disc)
+context.setFillColor(gray(1))
+context.fillPath()
+context.restoreGState()
+
+context.saveGState()
+context.addEllipse(in: disc)
 context.clip()
 
-// Cool near-white, brighter at the top-left where the light is.
-let slabColors = [
-    CGColor(red: 0.988, green: 0.992, blue: 0.996, alpha: 1),
-    CGColor(red: 0.957, green: 0.969, blue: 0.980, alpha: 1),
-    CGColor(red: 0.933, green: 0.949, blue: 0.965, alpha: 1),
-] as CFArray
-if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                             colors: slabColors, locations: [0, 0.55, 1]) {
-    context.drawLinearGradient(gradient,
-                               start: CGPoint(x: body.minX, y: body.maxY),
-                               end: CGPoint(x: body.maxX, y: body.minY),
-                               options: [])
+// The light: one sweep through every hue, run across the part of the disc
+// the seams actually cross so each colour shows up in at least one gap.
+let pull = radius * 0.45
+linear(spectrum, from: CGPoint(x: disc.minX + pull, y: disc.maxY - pull),
+       to: CGPoint(x: disc.maxX - pull, y: disc.minY + pull))
+
+// The blades, in a transparency layer so the seams and the opening can be cut
+// clean through to the light rather than painted over it.
+context.beginTransparencyLayer(auxiliaryInfo: nil)
+
+// Turning counter-clockwise: the same construction, seen in a mirror.
+context.translateBy(x: centre.x, y: 0)
+context.scaleBy(x: -1, y: 1)
+context.translateBy(x: -centre.x, y: 0)
+
+let vertices = (0..<bladeCount).map { point(centre, hole, turn + CGFloat($0) * step) }
+
+/// Each blade edge is one side of the opening, extended to the rim — how the
+/// leaves of a real iris lie.
+func rayEnd(_ i: Int) -> CGPoint {
+    let a = vertices[i], b = vertices[(i + 1) % bladeCount]
+    let dx = b.x - a.x, dy = b.y - a.y
+    let length = hypot(dx, dy)
+    return CGPoint(x: a.x + dx / length * radius * 3, y: a.y + dy / length * radius * 3)
 }
-context.restoreGState()
 
-// --- the inner well, which is what makes it read as a tray with thick walls -
-let wallThickness = size * 0.017
-let well = body.insetBy(dx: wallThickness, dy: wallThickness)
-let wellPath = squircle(in: well)
-
-// A soft inner shadow just inside the wall, so the wall has depth.
-context.saveGState()
-context.addPath(wellPath)
-context.clip()
-context.setShadow(offset: .zero, blur: size * 0.011, color: gray(0.56, 0.18))
-context.addPath(squircle(in: well.insetBy(dx: -size * 0.02, dy: -size * 0.02)))
-context.addPath(wellPath)
-context.setFillColor(gray(1, 0.001))
-context.drawPath(using: .eoFill)
-context.restoreGState()
-
-// --- the fan ----------------------------------------------------------------
-context.saveGState()
-context.addPath(wellPath)
-context.clip()
-
-if let multiply = loadLayer("fan-multiply"), let light = loadLayer("fan-light") {
-    // Fitted to the well with a little breathing room, preserving aspect.
-    let aspect = CGFloat(multiply.width) / CGFloat(multiply.height)
-    let available = well.insetBy(dx: well.width * 0.002, dy: well.height * 0.002)
-    var fanSize = CGSize(width: available.height * aspect, height: available.height)
-    if fanSize.width > available.width {
-        fanSize = CGSize(width: available.width, height: available.width / aspect)
-    }
-    let fanRect = CGRect(x: available.midX - fanSize.width / 2,
-                         y: available.midY - fanSize.height / 2,
-                         width: fanSize.width, height: fanSize.height)
-
-    // A soft shadow under the whole fan, so it sits in the tray rather than on
-    // top of it. Drawn from the multiply layer's own darkness.
-    context.saveGState()
-    context.setShadow(offset: CGSize(width: 0, height: -size * 0.006),
-                      blur: size * 0.018, color: gray(0.35, 0.28))
-    context.setBlendMode(.multiply)
-    context.draw(multiply, in: fanRect)
-    context.restoreGState()
-
-    context.saveGState()
-    context.setBlendMode(.plusLighter)
-    context.setAlpha(0.85)
-    context.draw(light, in: fanRect)
-    context.restoreGState()
-} else {
-    FileHandle.standardError.write(Data("missing Resources/Art/fan-*.png\n".utf8))
+for i in 0..<bladeCount {
+    let blade = CGMutablePath()
+    blade.move(to: vertices[(i + 1) % bladeCount])
+    blade.addLine(to: rayEnd(i))
+    // The far corner sits on the bisector of rays i and i + 1.
+    blade.addLine(to: point(centre, radius * 3, turn + CGFloat(i) * step + 90 + step))
+    blade.addLine(to: rayEnd((i + 1) % bladeCount))
+    blade.closeSubpath()
+    context.addPath(blade)
+    // Alternate a whisper of grey, so neighbouring blades read as separate
+    // leaves even where a seam is narrow at small sizes.
+    context.setFillColor(i % 2 == 0 ? gray(1) : gray(0.95))
+    context.fillPath()
 }
-context.restoreGState()
 
-// --- glass on top of the fan ------------------------------------------------
-// A broad specular sheen across the upper-left, drawn over everything so the
-// fan reads as being *under* glass rather than sitting on it.
-context.saveGState()
-context.addPath(bodyPath)
-context.clip()
-let sheen = [gray(1, 0.26), gray(1, 0.05), gray(1, 0.0)] as CFArray
-if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                             colors: sheen, locations: [0, 0.34, 0.62]) {
-    context.drawLinearGradient(gradient,
-                               start: CGPoint(x: body.minX, y: body.maxY),
-                               end: CGPoint(x: body.midX + body.width * 0.1,
-                                            y: body.midY - body.height * 0.05),
-                               options: [])
+context.setBlendMode(.clear)
+context.setLineWidth(seamWidth)
+context.setLineCap(.round)
+for i in 0..<bladeCount {
+    context.move(to: vertices[i])
+    context.addLine(to: rayEnd(i))
 }
-context.restoreGState()
-
-// --- rim --------------------------------------------------------------------
-// Bright outside edge, then a fainter inner line to suggest the glass's
-// thickness where it turns.
-context.saveGState()
-context.addPath(bodyPath)
-context.setStrokeColor(gray(1, 0.38))
-context.setLineWidth(size * 0.0035)
 context.strokePath()
+let opening = CGMutablePath()
+opening.addLines(between: vertices)
+opening.closeSubpath()
+context.addPath(opening)
+context.fillPath()
 
-// The bevel: a bright band just inside the outer edge, fading inward, which
-// is what gives the wall apparent thickness.
-context.saveGState()
-context.addPath(bodyPath)
-context.addPath(squircle(in: body.insetBy(dx: wallThickness, dy: wallThickness)))
-context.clip(using: .evenOdd)
-let bevel = [gray(1, 0.24), gray(1, 0.02), gray(0.78, 0.055)] as CFArray
-if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                             colors: bevel, locations: [0, 0.5, 1]) {
-    context.drawLinearGradient(gradient,
-                               start: CGPoint(x: body.minX, y: body.maxY),
-                               end: CGPoint(x: body.maxX, y: body.minY),
-                               options: [])
-}
+context.endTransparencyLayer()
 context.restoreGState()
 
-
-context.restoreGState()
+// A hairline on the tile edge keeps a white icon crisp against a white
+// Finder window, where it would otherwise dissolve into the background.
+context.addPath(tilePath)
+context.setStrokeColor(gray(0, 0.08))
+context.setLineWidth(max(0.5, size / 1024))
+context.strokePath()
 
 // MARK: - Write
 

@@ -300,17 +300,44 @@ Same for the README: plain sentences, few em-dashes, no aphorisms.
 
 ## 2d. Icon, DMG, and the settings window
 
-**The icon is code**, not a file: `Scripts/IconTools/MakeIcon.swift` draws a
-superellipse tray (`n = 5`, which is much closer to Apple's continuous-curvature
-corners than a plain rounded rect) and eight multiply-blended blades fanned from
-a pivot at 30%/13% of the well. `Scripts/make-icon.sh` renders all ten sizes and
-runs `iconutil`. `Resources/Casa.icns` is gitignored and generated on demand by
-`build-app.sh`.
+**The icon is code**, not a file. `Scripts/IconTools/MakeIcon.swift` draws a
+white superellipse tile (`n = 5`) on Apple's grid: an 824 px body on a 1024 px
+canvas. On it sits a six-blade iris, "Prism". The blades are white and
+counter-clockwise, and a full-spectrum sweep beneath them shows only through
+the seams and the hexagonal opening. `Scripts/make-icon.sh` renders all ten
+sizes and runs `iconutil`. `Resources/Casa.icns` is gitignored and generated on
+demand by `build-app.sh`.
 
-Three things carried most of the likeness to the reference, in order: making the
-blades wide enough to genuinely overlap (the overlap *is* the effect), a
-two-tone edge so individual blades stay readable where three of them cross, and
-uneven angles and lengths — evenly spaced equal blades read as a pie chart.
+**Why it looks like this (0.10.1, 23 Sep 2026).** The old glass-tray fan felt
+"adjusted" for three reasons:
+
+- it pivoted from the bottom-left
+- its edges were soft
+- its body was 946 px, far over Apple's 824, so it looked oversized beside
+  other apps
+
+Every coordinate in the new one derives from the tile's centre. The measured
+visual-weight centroid is within 1% of centre.
+
+**Trademark constraint, do not regress.** The owner wanted the classic
+every-colour-once rainbow shutter. That is Picasa's mark: a colour-wheel
+shutter, with design registration 2971543 (lenses, shaded circles, polygons),
+renewed 2014. Its current status could not be confirmed, so treat it as live.
+A rainbow-bladed shutter on white was ruled out as too close, and a mirrored
+one still reads as Picasa. Prism keeps the homage but moves the colour *behind*
+the iris as light.
+
+Also ruled out:
+
+- a white mark on a violet→orange gradient tile, which is Instagram
+- overlapping multiplied petals, which is Apple Photos
+
+Picasa's logo had a house silhouette in its centre ("casa"), so never put a
+house in ours.
+
+The explorations were never committed: aperture, photo, slides, ring,
+tidepool, ember, reveal, relief, and spectrum variants of several. Everything
+above is the reasoning that survived them.
 
 **The DMG** is built by `Scripts/make-dmg.sh`: staging directory, read-write
 image, Finder driven over AppleScript to set the window and icon positions,

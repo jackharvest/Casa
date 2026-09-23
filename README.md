@@ -193,9 +193,8 @@ Scripts/release.sh
 `VERSION` is the only place the version lives. It gets stamped into the bundle
 at build time, and the build number is the commit count.
 
-The icon is drawn in code (`Scripts/IconTools/MakeIcon.swift`) from a glass tray
-and the colour fan in `Resources/Art`, so all ten icon sizes come from one
-source. The DMG background is generated the same way.
+The icon is drawn in code (`Scripts/IconTools/MakeIcon.swift`), so all ten icon
+sizes come from one source. The DMG background is generated the same way.
 
 ## How it works
 

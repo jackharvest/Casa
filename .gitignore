@@ -12,5 +12,5 @@ build/
 *.pem
 private/
 
-# Assembled by Scripts/make-icon.sh from Resources/Art — not a master
+# Rendered by Scripts/make-icon.sh — not a master
 Resources/Casa.icns
