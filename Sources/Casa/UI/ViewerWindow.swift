@@ -54,6 +54,9 @@ final class ViewerWindow: NSWindow {
         tabbingMode = .disallowed
         animationBehavior = .none
         acceptsMouseMovedEvents = true
+        // The chrome is designed for a dark ground whatever the system
+        // setting; glass and tooltips should agree with it.
+        appearance = NSAppearance(named: .darkAqua)
 
         applyGround()
     }
@@ -63,63 +66,71 @@ final class ViewerWindow: NSWindow {
 
     // MARK: - Open and close
 
-    /// A CRT switching on: a bright horizontal line snaps across the middle of
-    /// the screen, then opens vertically. Closing runs it backwards.
+    /// Picasa's opening, as people remember it: the screen dims and the
+    /// photograph grows out of a single point in the middle, fast.
     ///
-    /// Two phases rather than a plain scale, because the line is what sells it.
-    /// It also buys a little time — roughly 90 ms where the window is on screen
-    /// but only a few pixels tall — for the first decode and the chrome to be
-    /// ready by the time there is anything to look at.
-    private static let lineHeight: CGFloat = 3
-    private static let widenDuration: TimeInterval = 0.085
-    private static let openDuration: TimeInterval = 0.135
-    private static let collapseDuration: TimeInterval = 0.105
-    private static let pinchDuration: TimeInterval = 0.070
+    /// The window goes on screen fully transparent and waits for the first
+    /// bitmap — usually the camera's embedded preview, a few milliseconds
+    /// away — so the dimming and the growing are one gesture rather than an
+    /// empty veil followed, a beat later, by a photo popping in. If nothing
+    /// arrives promptly (an unreadable file) the veil comes up anyway.
+    private static let openDuration: TimeInterval = 0.26
+    private static let closeDuration: TimeInterval = 0.17
+    private static let revealDeadline: TimeInterval = 0.6
 
     /// True once a close animation has started, so the delegate lets the
     /// second `close()` through instead of animating forever.
     private(set) var isDismissing = false
 
-    /// The frame the window belongs at, captured before the animation shrinks
-    /// it to a line.
-    private var restingFrame: NSRect = .zero
+    /// Set between ordering in and the first bitmap.
+    private var awaitingReveal = false
+
+    private var canvas: ImageCanvasView? {
+        contentViewController?.view.subviews.first { $0 is ImageCanvasView } as? ImageCanvasView
+    }
+
+    /// The middle of the window, in the canvas's coordinates — the point the
+    /// photograph grows out of and shrinks back into.
+    private func origin(in canvas: ImageCanvasView) -> CGPoint {
+        let bounds = canvas.bounds
+        return CGPoint(x: bounds.midX, y: bounds.midY)
+    }
 
     func presentAnimated() {
-        restingFrame = frame
-
         guard !Accommodations.current.reduceMotion else {
             makeKeyAndOrderFront(nil)
             return
         }
 
-        let destination = restingFrame
-        let middle = CGPoint(x: destination.midX, y: destination.midY)
-
-        // A stub in the middle, the width of a cursor blink.
-        setFrame(NSRect(x: middle.x - destination.width * 0.11,
-                        y: middle.y - Self.lineHeight / 2,
-                        width: destination.width * 0.22,
-                        height: Self.lineHeight),
-                 display: false)
+        alphaValue = 0
+        awaitingReveal = true
         makeKeyAndOrderFront(nil)
 
-        let line = NSRect(x: destination.minX, y: middle.y - Self.lineHeight / 2,
-                          width: destination.width, height: Self.lineHeight)
+        if canvas?.hasImage == true {
+            revealIfWaiting()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDeadline) { [weak self] in
+            self?.revealIfWaiting()
+        }
+    }
 
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.widenDuration
+    /// Called when the first bitmap lands, and by the deadline. Whichever
+    /// comes first opens the window; the other finds nothing to do.
+    func revealIfWaiting() {
+        guard awaitingReveal, !isDismissing else { return }
+        awaitingReveal = false
+
+        if let canvas {
+            canvas.animateArrival(from: origin(in: canvas), duration: Self.openDuration)
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            // The veil is up within a few frames, so the whole flight of the
+            // photograph is visible rather than hidden behind a fade.
+            context.duration = Self.openDuration * 0.35
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().setFrame(line, display: true)
-        }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, !self.isDismissing else { return }
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = Self.openDuration
-                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    self.animator().setFrame(destination, display: true)
-                }
-            }
-        })
+            animator().alphaValue = 1
+        }
     }
 
     /// The reverse, then actually close.
@@ -127,34 +138,22 @@ final class ViewerWindow: NSWindow {
         guard !isDismissing else { return }
         isDismissing = true
 
-        guard !Accommodations.current.reduceMotion else {
+        guard !Accommodations.current.reduceMotion, alphaValue > 0 else {
             close()
             return
         }
 
-        let start = frame
-        let middle = CGPoint(x: start.midX, y: start.midY)
-        let line = NSRect(x: start.minX, y: middle.y - Self.lineHeight / 2,
-                          width: start.width, height: Self.lineHeight)
-        let dot = NSRect(x: middle.x - 1, y: middle.y - Self.lineHeight / 2,
-                         width: 2, height: Self.lineHeight)
-
+        if let canvas {
+            canvas.animateDeparture(to: origin(in: canvas), duration: Self.closeDuration)
+        }
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.collapseDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            animator().setFrame(line, display: true)
+            context.duration = Self.closeDuration
+            // Held back at first, so the photograph is still visibly on its
+            // way into the point when the veil lifts, not already gone.
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.6, 0, 1, 1)
+            animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.duration = Self.pinchDuration
-                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                    self.animator().setFrame(dot, display: true)
-                    self.animator().alphaValue = 0
-                }, completionHandler: {
-                    MainActor.assumeIsolated { self.close() }
-                })
-            }
+            MainActor.assumeIsolated { self?.close() }
         })
     }
 
@@ -167,14 +166,6 @@ final class ViewerWindow: NSWindow {
         // desktop behind was effectively gone, which reads as a modal sheet
         // rather than as a viewer floating over your work.
         backgroundColor = NSColor(white: 0.06, alpha: opaque ? 1.0 : 0.45)
-    }
-
-    /// True while the open or close animation has the window squeezed into a
-    /// line. The canvas skips fitting during that, because fitting a photo into
-    /// a three-pixel-tall view is wasted work that also produces a visible
-    /// flash of a wrongly scaled image at the end.
-    var isAnimatingPresentation: Bool {
-        frame.height < restingFrame.height * 0.5 && restingFrame.height > 0
     }
 
     /// Switches between full-bleed and a window hugging the photograph.
@@ -203,13 +194,11 @@ final class ViewerWindow: NSWindow {
                               y: visible.midY - size.height / 2,
                               width: size.width, height: size.height)
             let framed = frameRect(forContentRect: rect)
-            restingFrame = framed
             setFrame(framed, display: true,
                      animate: !Accommodations.current.reduceMotion)
 
         case .fullBleed:
             styleMask = [.borderless, .resizable]
-            restingFrame = screen.visibleFrame
             titlebarAppearsTransparent = true
             titleVisibility = .hidden
             isMovableByWindowBackground = false
@@ -219,7 +208,7 @@ final class ViewerWindow: NSWindow {
             applyScreenFrame(hidingDock: hidesDock)
         }
 
-        makeFirstResponder(contentViewController?.view.subviews.first { $0 is ImageCanvasView })
+        makeFirstResponder(canvas)
     }
 
     /// Resizes for the current Dock preference.
@@ -281,5 +270,9 @@ final class ViewerWindowDelegate: NSObject, NSWindowDelegate {
     func windowDidChangeScreen(_ notification: Notification) {
         guard let window = notification.object as? ViewerWindow else { return }
         window.applyScreenFrame(hidingDock: window.hidesDock)
+        // A different display can mean a different chrome size.
+        if ChromeMetrics.adopt(window.screen) {
+            (window.contentViewController as? ViewerController)?.environmentChanged()
+        }
     }
 }

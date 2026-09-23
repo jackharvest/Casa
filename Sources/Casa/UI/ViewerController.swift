@@ -62,14 +62,14 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         session.onRotationFailed = { [weak self] message in
             guard let self, let url = self.session.currentURL else { return }
             self.chrome.update(filename: url.lastPathComponent,
-                               position: self.session.positionDescription,
+                               detail: self.detailDescription,
                                note: message)
             self.chrome.flash()
         }
         session.onUnreadable = { [weak self] url in
             guard let self else { return }
             self.chrome.update(filename: url.lastPathComponent,
-                               position: self.session.positionDescription,
+                               detail: self.detailDescription,
                                note: "Can’t display this file")
             self.chrome.flash()
         }
@@ -148,7 +148,8 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
     // MARK: - Environment
 
-    private func environmentChanged() {
+    func environmentChanged() {
+        ChromeMetrics.adopt(view.window?.screen)
         (view.window as? ViewerWindow)?.applyGround()
         canvas.environmentChanged()
         chrome.applyMetrics()
@@ -161,9 +162,10 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
             window.title = session.currentURL?.lastPathComponent ?? "Casa"
         }
         chrome.updatePlayback(canPlay: canvas.playable != .none, isPlaying: canvas.isPlaying)
+        chrome.updateNavigation(index: session.index, count: session.urls.count)
         chrome.update(
             filename: session.currentURL?.lastPathComponent ?? "",
-            position: session.positionDescription
+            detail: detailDescription
         )
         chrome.filmstrip.update(urls: session.urls,
                                 currentIndex: session.index,
@@ -171,12 +173,28 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         updateCanvasInsets()
     }
 
+    /// The line under the filename: where you are in the folder, the
+    /// photograph's pixel dimensions, and its size on disk. Picasa showed the
+    /// dimensions whenever a file opened, and people missed it — it answers
+    /// "is this the big one?" without opening Get Info.
+    var detailDescription: String {
+        var parts = [session.positionDescription]
+        let size = canvas.imageSize
+        if size.width > 0 {
+            parts.append("\(Int(size.width)) × \(Int(size.height))")
+        }
+        if let url = session.currentURL,
+           let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: "   ·   ")
+    }
+
     /// Hands the canvas the area the chrome is using, so a fitted photograph
     /// is composed in the space that is actually free rather than centred
     /// behind the rail.
     private func updateCanvasInsets() {
-        let showsFilmstrip = session.urls.count > 1
-        chrome.filmstrip.isHidden = !showsFilmstrip
+        chrome.showsFilmstrip = session.urls.count > 1
 
         // In a window the photograph fills the frame and the chrome floats over
         // it, so there are no insets to reserve. Full-screen keeps them,
@@ -188,9 +206,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
         canvas.contentInsets = NSEdgeInsets(
             top: chrome.topInset,
-            left: Metrics.spacing(2),
-            bottom: showsFilmstrip ? chrome.bottomInset : Metrics.hitTarget(.control) + Metrics.spacing(4),
-            right: Metrics.spacing(2)
+            left: ChromeMetrics.spacing(2),
+            bottom: chrome.bottomInset,
+            right: ChromeMetrics.spacing(2)
         )
     }
 
@@ -202,10 +220,73 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
     // MARK: - Actions
 
-    @objc func goNext(_ sender: Any?) { session.advance(by: 1) }
-    @objc func goPrevious(_ sender: Any?) { session.advance(by: -1) }
+    @objc func goNext(_ sender: Any?) { step(by: 1) }
+    @objc func goPrevious(_ sender: Any?) { step(by: -1) }
     @objc func zoomToFit(_ sender: Any?) { canvas.fit(animated: true) }
     @objc func zoomToActual(_ sender: Any?) { canvas.actualSize(animated: true) }
+    @objc func zoomIn(_ sender: Any?) { zoomAboutCentre(1.25) }
+    @objc func zoomOut(_ sender: Any?) { zoomAboutCentre(1 / 1.25) }
+
+    /// Picasa's `1`: to actual size, and back to fit if already there.
+    @objc func toggleActualSize(_ sender: Any?) {
+        if canvas.isAtActualSize { canvas.fit(animated: true) } else { canvas.actualSize(animated: true) }
+    }
+
+    private func zoomAboutCentre(_ factor: CGFloat) {
+        canvas.zoom(by: factor, at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
+    }
+
+    /// A step the user asked for. It restarts a running slideshow's clock, so
+    /// stepping back to look again is not immediately overruled.
+    private func step(by offset: Int) {
+        session.advance(by: offset)
+        if slideshowTimer != nil { scheduleSlideshowStep() }
+    }
+
+    // MARK: - Slideshow
+
+    /// The round button in the middle of the toolbar. Picasa's did the same:
+    /// the chrome gets out of the way and the folder plays forward.
+    private var slideshowTimer: Timer?
+    private static let slideshowInterval: TimeInterval = 3.5
+
+    @objc func toggleSlideshow(_ sender: Any?) {
+        if slideshowTimer != nil {
+            stopSlideshow()
+            chrome.flash()
+            return
+        }
+        // At the end of the folder, a slideshow starts from the beginning
+        // rather than stopping the instant it begins.
+        if session.index >= session.urls.count - 1 { session.go(to: 0) }
+        scheduleSlideshowStep()
+        chrome.updateSlideshow(isRunning: true)
+        chrome.setVisible(false)
+    }
+
+    private func scheduleSlideshowStep() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = Timer.scheduledTimer(withTimeInterval: Self.slideshowInterval,
+                                              repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.slideshowStep() }
+        }
+    }
+
+    private func slideshowStep() {
+        guard session.index < session.urls.count - 1 else {
+            stopSlideshow()
+            chrome.flash()
+            return
+        }
+        session.advance(by: 1)
+        scheduleSlideshowStep()
+    }
+
+    func stopSlideshow() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = nil
+        chrome.updateSlideshow(isRunning: false)
+    }
     @objc func rotateLeft(_ sender: Any?) { rotate(by: -1) }
     @objc func rotateRight(_ sender: Any?) { rotate(by: 1) }
 
@@ -219,7 +300,7 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         }
         guard let url = session.currentURL, !ImageRotator.canRotate(url) else { return }
         chrome.update(filename: url.lastPathComponent,
-                      position: session.positionDescription,
+                      detail: detailDescription,
                       note: "Rotation won't be saved for this file")
         chrome.flash()
     }
@@ -295,6 +376,10 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         if menuItem.action == #selector(setPlaybackPolicy(_:)) {
             menuItem.state = (menuItem.representedObject as? String) == Preferences.playbackPolicy.rawValue ? .on : .off
         }
+        if menuItem.action == #selector(toggleSlideshow(_:)) {
+            menuItem.title = slideshowTimer != nil ? "Stop Slideshow" : "Start Slideshow"
+            return session.urls.count > 1
+        }
         if menuItem.action == #selector(togglePlayback(_:)) {
             menuItem.title = canvas.isPlaying ? "Pause" : "Play"
             return canvas.playable != .none
@@ -321,7 +406,7 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         }
         pasteboard.writeObjects(items)
         chrome.update(filename: url.lastPathComponent,
-                      position: session.positionDescription,
+                      detail: detailDescription,
                       note: "Copied")
         chrome.flash()
     }
@@ -333,7 +418,7 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url.path, forType: .string)
         chrome.update(filename: url.lastPathComponent,
-                      position: session.positionDescription,
+                      detail: detailDescription,
                       note: "Path copied")
         chrome.flash()
     }
@@ -354,14 +439,18 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         let jump = modifiers.contains(.option) ? 10 : 1
 
         switch event.specialKey {
-        case .leftArrow:  session.advance(by: -jump); return
-        case .rightArrow: session.advance(by: jump); return
-        case .upArrow:    session.advance(by: -jump); return
-        case .downArrow:  session.advance(by: jump); return
-        case .home:       session.go(to: 0); return
-        case .end:        session.go(to: max(0, session.urls.count - 1)); return
-        case .pageUp:     session.advance(by: -10); return
-        case .pageDown:   session.advance(by: 10); return
+        case .leftArrow:  step(by: -jump); return
+        case .rightArrow: step(by: jump); return
+        // Up and down zoom, as they did in Picasa — beside left and right, so
+        // one hand on the arrows both walks the folder and looks closer.
+        case .upArrow:    zoomAboutCentre(1.25); return
+        case .downArrow:  zoomAboutCentre(1 / 1.25); return
+        case .home:       step(by: -session.index); return
+        case .end:        step(by: session.urls.count - 1 - session.index); return
+        case .pageUp:     step(by: -10); return
+        case .pageDown:   step(by: 10); return
+        case .carriageReturn, .enter:
+            canvasDidRequestWindowedToggle(canvas); return
         default: break
         }
 
@@ -372,15 +461,17 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
             // Space means "play" wherever something can play, and "next"
             // everywhere else — the two never compete because a still image
             // has nothing to play.
-            if canvas.playable != .none { canvas.togglePlayback() } else { session.advance(by: 1) }
+            if canvas.playable != .none { canvas.togglePlayback() } else { step(by: 1) }
         case "0":
             canvas.fit(animated: true)
         case "1":
-            canvas.actualSize(animated: true)
+            toggleActualSize(nil)
         case "+", "=":
-            canvas.zoom(by: 1.25, at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
+            zoomAboutCentre(1.25)
         case "-":
-            canvas.zoom(by: 1 / 1.25, at: CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY))
+            zoomAboutCentre(1 / 1.25)
+        case "s", "S":
+            toggleSlideshow(nil)
         default:
             super.keyDown(with: event)
         }
@@ -390,7 +481,11 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 extension ViewerController: ImageCanvasDelegate {
 
     func canvas(_ canvas: ImageCanvasView, didChangeZoomTo scale: CGFloat, isFitted: Bool) {
-        chrome.flash()
+        chrome.updateZoom(isActualSize: canvas.isAtActualSize)
+        // A zoom during a slideshow means the user wants to look; the show
+        // stops rather than yanking the photo away mid-inspection.
+        if slideshowTimer != nil, !isFitted { stopSlideshow() }
+        if slideshowTimer == nil { chrome.flash() }
 
         escalationWork?.cancel()
         guard canvas.needsFullResolution else { return }
@@ -447,6 +542,15 @@ extension ViewerController: ImageCanvasDelegate {
             viewer.dismissAnimated()
         } else {
             view.window?.close()
+        }
+    }
+
+    /// The first bitmap is what opens the window.
+    func canvasDidShowImage(_ canvas: ImageCanvasView) {
+        (view.window as? ViewerWindow)?.revealIfWaiting()
+        // Dimensions are known only once a bitmap has landed.
+        if let url = session.currentURL, !chrome.isShowingNote {
+            chrome.update(filename: url.lastPathComponent, detail: detailDescription)
         }
     }
 

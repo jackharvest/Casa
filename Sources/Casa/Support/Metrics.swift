@@ -135,3 +135,92 @@ enum Metrics {
         (pointSize(.control) * 5).rounded()
     }
 }
+
+/// Sizes for the viewer's chrome, which floats over a photograph filling a
+/// whole display rather than sitting in a window someone reads up close.
+///
+/// Same inputs as `Metrics` — the user's text size drives everything — plus
+/// the display itself. A 32-inch 4K panel at 1x and a 14-inch laptop show
+/// thirteen points at nearly the same physical size, but nobody sits as close
+/// to the 32-inch one, and a control cluster sized for the laptop becomes a
+/// speck in the middle of a vast dark ground. So the chrome grows with the
+/// short edge of the screen it is on, from 1x at 1100 points to a ceiling of
+/// 1.45x, and the settings windows — which are read, not glanced at — stay on
+/// plain `Metrics`.
+@MainActor
+enum ChromeMetrics {
+
+    /// Set from the viewer's screen. Returns true if it changed, so the caller
+    /// knows to re-lay out.
+    @discardableResult
+    static func adopt(_ screen: NSScreen?) -> Bool {
+        guard let screen else { return false }
+        let shortEdge = min(screen.frame.width, screen.frame.height)
+        let next = min(1.45, max(1, (shortEdge / 1100 * 20).rounded() / 20))
+        guard next != displayScale else { return false }
+        displayScale = next
+        return true
+    }
+
+    private(set) static var displayScale: CGFloat = 1
+
+    /// The chrome reads a step larger than body copy at every size. Picasa's
+    /// controls were chunky, and a photograph is a busy background that
+    /// swallows fine type.
+    private static func boost(_ role: Metrics.Role) -> CGFloat {
+        switch role {
+        case .control: 1.25
+        case .title: 1.2
+        case .caption: 1.25
+        case .hero: 1.0
+        }
+    }
+
+    static func pointSize(_ role: Metrics.Role) -> CGFloat {
+        (Metrics.pointSize(role) * boost(role) * displayScale).rounded()
+    }
+
+    static func font(_ role: Metrics.Role, weight: NSFont.Weight? = nil) -> NSFont {
+        let size = pointSize(role)
+        switch role {
+        case .title: return .systemFont(ofSize: size, weight: weight ?? .semibold)
+        case .caption: return .monospacedDigitSystemFont(ofSize: size, weight: weight ?? .medium)
+        default: return .systemFont(ofSize: size, weight: weight ?? .regular)
+        }
+    }
+
+    static func icon(_ symbolName: String,
+                     role: Metrics.Role = .control,
+                     weight: NSFont.Weight = .medium,
+                     describedAs description: String) -> NSImage? {
+        guard let base = NSImage(systemSymbolName: symbolName,
+                                 accessibilityDescription: description) else {
+            Log.render.error("Missing SF Symbol: \(symbolName, privacy: .public)")
+            return nil
+        }
+        let contrast = Accommodations.current.increaseContrast
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: pointSize(role),
+            weight: contrast ? .bold : weight,
+            scale: role == .hero ? .large : .medium)
+        let configured = base.withSymbolConfiguration(configuration)
+        configured?.isTemplate = true
+        return configured
+    }
+
+    /// Spacing unit: a third of the control size, rounded to whole points.
+    static func spacing(_ steps: CGFloat = 1) -> CGFloat {
+        (pointSize(.control) / 3).rounded() * steps
+    }
+
+    /// A control's square target. Generous, because these are hit with a
+    /// mouse travelling across a large screen, not a finger on a small one.
+    static func hitTarget(_ role: Metrics.Role = .control) -> CGFloat {
+        let multiple: CGFloat = role == .hero ? 2.6 : 2.3
+        return max(32, (pointSize(role) * multiple).rounded())
+    }
+
+    static var filmstripThumb: CGFloat {
+        (pointSize(.control) * 4.2).rounded()
+    }
+}

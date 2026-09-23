@@ -68,6 +68,16 @@ enum Glass {
         return effect
     }
 
+    /// Re-rounds a panel made by `panel(_:cornerRadius:)`, for surfaces whose
+    /// size follows the user's text setting.
+    static func setCornerRadius(_ panel: NSView, _ radius: CGFloat) {
+        if #available(macOS 26.0, *), let glass = panel as? NSGlassEffectView {
+            glass.cornerRadius = radius
+            return
+        }
+        panel.layer?.cornerRadius = radius
+    }
+
     /// Groups panels so they can merge when close together.
     static func container(_ content: NSView, spacing: CGFloat = 18) -> NSView {
         content.translatesAutoresizingMaskIntoConstraints = false

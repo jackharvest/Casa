@@ -19,7 +19,7 @@ final class ZoomBadge: NSView {
     private var hideWork: DispatchWorkItem?
 
     /// Diameter, from the user's text size like everything else.
-    static func diameter() -> CGFloat { max(58, (Metrics.pointSize(.control) * 4.6).rounded()) }
+    static func diameter() -> CGFloat { max(58, (ChromeMetrics.pointSize(.control) * 3.8).rounded()) }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

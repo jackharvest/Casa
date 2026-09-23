@@ -8,12 +8,13 @@ menu bar is where modified shortcuts are *registered*, not merely advertised.
 
 | Key | Action |
 |---|---|
-| `←` `→` `↑` `↓` | Previous / next image |
+| `←` `→` | Previous / next image |
 | `⌥` + arrow | Jump 10 |
 | `Page Up` / `Page Down` | Jump 10 |
 | `Home` / `End` | First / last image |
 | `Space` | Next image |
 | `⌘[` / `⌘]` | Previous / next image |
+| `S` | Start or stop a slideshow (3.5 s per photo; stops at the end, or when you zoom) |
 
 Navigation clamps at both ends rather than wrapping. Wrapping makes it
 impossible to tell you have reached the end of a folder.
@@ -23,7 +24,9 @@ impossible to tell you have reached the end of a folder.
 | Input | Action |
 |---|---|
 | `0` or `⌘0` | Fit to window |
-| `1` or `⌘1` | Actual size (1 image pixel per *screen* pixel) |
+| `1` | Actual size (1 image pixel per *screen* pixel), or back to fit if already there |
+| `⌘1` | Actual size |
+| `↑` / `↓` | Zoom in / out about the center, as Picasa did |
 | `+` / `-` | Zoom about the center |
 | Mouse wheel | Zoom about the pointer, smoothly. The percentage appears beside the cursor |
 | `⌃` + wheel | Previous / next image |
@@ -31,7 +34,7 @@ impossible to tell you have reached the end of a folder.
 | Trackpad pinch | Zoom about the pointer |
 | Double-click | Toggle fit ⇄ 1:1, anchored where you clicked |
 | Drag | Pan |
-| Click the surround | Switch between full-screen and a window hugging the photo |
+| Click the surround, or `Return` | Switch between full-screen and a window hugging the photo |
 
 Dragging a photo that already fits moves it and leaves it there, rather than
 snapping back to the middle. Picasa did this because you are usually lining up

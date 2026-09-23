@@ -65,6 +65,7 @@ enum MenuBuilder {
         add(to: menu, "Rotate Left", #selector(ViewerController.rotateLeft(_:)), "[", [.command, .shift])
         add(to: menu, "Rotate Right", #selector(ViewerController.rotateRight(_:)), "]", [.command, .shift])
         menu.addItem(.separator())
+        add(to: menu, "Start Slideshow", #selector(ViewerController.toggleSlideshow(_:)), "", [])
         add(to: menu, "Play", #selector(ViewerController.togglePlayback(_:)), " ", [])
 
         let playbackItem = NSMenuItem(title: "Playback", action: nil, keyEquivalent: "")

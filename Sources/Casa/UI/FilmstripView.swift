@@ -61,12 +61,20 @@ final class FilmstripView: NSView {
     // MARK: - Metrics
 
     /// Cell edge, from the user's text size like everything else.
-    private var cellEdge: CGFloat { Metrics.filmstripThumb }
-    private var gap: CGFloat { Metrics.spacing(1) }
+    private var cellEdge: CGFloat { ChromeMetrics.filmstripThumb }
+    private var gap: CGFloat { (ChromeMetrics.spacing(1) * 0.75).rounded() }
     private var step: CGFloat { cellEdge + gap }
 
+    /// The current thumbnail is drawn larger than its neighbours — Picasa
+    /// lifted it the same way — so "where am I" is answered by shape before
+    /// the eye has even found the ring.
+    private static let lift: CGFloat = 1.22
+    private var currentEdge: CGFloat { (cellEdge * Self.lift).rounded() }
+    /// How far the neighbours stand off to make room for the lifted cell.
+    private var liftOffset: CGFloat { ((currentEdge - cellEdge) / 2).rounded() + gap / 2 }
+
     /// Total height the rail wants, including its breathing room.
-    var intrinsicHeight: CGFloat { cellEdge + Metrics.spacing(2) * 2 }
+    var intrinsicHeight: CGFloat { currentEdge + ChromeMetrics.spacing(1) * 3 }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: intrinsicHeight)
@@ -174,8 +182,16 @@ final class FilmstripView: NSView {
             if cellURL[index] != urls[index] {
                 applyContents(to: cell, index: index, animated: false)
             }
-            cell.frame = CGRect(x: (originX + CGFloat(index) * step).rounded(),
-                                y: y, width: cellEdge, height: cellEdge)
+            var x = (originX + CGFloat(index) * step).rounded()
+            if index < currentIndex { x -= liftOffset }
+            if index > currentIndex { x += liftOffset }
+            let edge = index == currentIndex ? currentEdge : cellEdge
+            // Bounds and position rather than frame: the cell may carry a
+            // rotation transform, and a frame assigned under a transform is
+            // undefined.
+            cell.bounds = CGRect(x: 0, y: 0, width: edge, height: edge)
+            cell.position = CGPoint(x: x + cellEdge / 2, y: y + cellEdge / 2)
+            cell.cornerRadius = (edge * 0.12).rounded()
             style(cell, isCurrent: index == currentIndex)
             applyRotation(to: cell, url: urls[index], animated: false)
         }
@@ -187,10 +203,11 @@ final class FilmstripView: NSView {
         let cell = CALayer()
         cell.contentsGravity = .resizeAspectFill
         cell.masksToBounds = true
-        cell.cornerRadius = Metrics.cornerRadius(.caption)
+        cell.cornerRadius = (cellEdge * 0.12).rounded()
         cell.cornerCurve = .continuous
         cell.contentsScale = window?.backingScaleFactor ?? 2
-        cell.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+        // A placeholder that reads as a slot waiting to fill, not a hole.
+        cell.backgroundColor = NSColor(white: 1, alpha: 0.1).cgColor
         cell.borderColor = NSColor.white.cgColor
         layer?.addSublayer(cell)
         cells[index] = cell
@@ -218,13 +235,14 @@ final class FilmstripView: NSView {
     /// The current cell is marked by a ring and a brighter ground, never by
     /// colour alone — Differentiate Without Color exists because colour alone
     /// is not a signal for everyone.
+    ///
+    /// No shadow on the current cell: `masksToBounds` clips a layer's own
+    /// shadow, so it never drew — the size and the ring do the work.
     private func style(_ cell: CALayer, isCurrent: Bool) {
-        cell.borderWidth = isCurrent ? max(2, (cellEdge * 0.035).rounded()) : 0
-        cell.opacity = isCurrent ? 1 : (accommodations.increaseContrast ? 0.85 : 0.55)
-        cell.shadowOpacity = isCurrent ? 0.45 : 0
-        cell.shadowRadius = isCurrent ? 6 : 0
-        cell.shadowOffset = .zero
-        cell.shadowColor = NSColor.black.cgColor
+        cell.borderWidth = isCurrent ? max(2, (currentEdge * 0.03).rounded()) : 0
+        cell.borderColor = NSColor(white: 1, alpha: 0.95).cgColor
+        cell.opacity = isCurrent ? 1 : (accommodations.increaseContrast ? 0.85 : 0.6)
+        cell.zPosition = isCurrent ? 1 : 0
     }
 
     // MARK: - Interaction
@@ -253,7 +271,9 @@ final class FilmstripView: NSView {
     private var scrubAccumulator: CGFloat = 0
 
     private func index(at point: CGPoint) -> Int? {
-        for (index, cell) in cells where cell.frame.contains(point) {
+        // Hit-test against the slot rather than the drawn cell, so the gaps
+        // between thumbnails do not swallow clicks.
+        for (index, cell) in cells where cell.frame.insetBy(dx: -gap / 2, dy: -gap).contains(point) {
             return index
         }
         return nil

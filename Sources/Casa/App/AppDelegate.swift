@@ -201,6 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         settings.close()
         LaunchClock.mark("present-begin")
+        // Before the controller exists, so the chrome is built at the right
+        // size for this display rather than built once and rebuilt.
+        ChromeMetrics.adopt(screen)
         let window = ViewerWindow(screen: screen, hidesDock: Preferences.hidesDock)
         let controller = ViewerController()
         window.contentViewController = controller

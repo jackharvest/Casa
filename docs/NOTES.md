@@ -3,7 +3,7 @@
 Written to make picking this up again cheap. Everything here is either
 non-obvious, hard-won, or would cost an hour to rediscover.
 
-Last worked on: **21 September 2026**.
+Last worked on: **23 September 2026**.
 
 Repo: <https://github.com/jackharvest/Casa> · Released through GitHub Releases,
 signed, and installed in place by the app itself.
@@ -170,6 +170,79 @@ because several are non-obvious and easy to regress:
 is `/`, so `open -a Casa --args foo/bar.jpg` silently fails to find the file and
 the viewer correctly reports that it cannot display it. Always pass absolute
 paths when testing.
+
+## 2i. The 0.10 design pass
+
+Goal stated by the owner: an art student should open it and think someone
+cared. What changed, and the non-obvious parts:
+
+**Open and close.** The two-phase "CRT line" was removed. The window now goes
+on screen at alpha 0 and waits for the first bitmap (`canvasDidShowImage`),
+then the veil fades up in ~90 ms while the photo grows from a single point at
+the window's centre to its fitted rect in 260 ms. Close is the reverse in
+170 ms. The growth is a presentation-layer `CAAnimationGroup` (transform +
+position) on `imageLayer`/`playerLayer`, so model geometry is already final
+and a tier upgrade mid-flight is harmless. A 0.6 s deadline opens the window
+even if no bitmap arrives (unreadable file).
+
+- **The first curve tried, (0.16, 1, 0.3, 1), looked like a plain fade.** It
+  reaches 85 % scale in 50 ms, while the window is still almost transparent.
+  Verified by recording with `screencapture -V` and pulling frames with a
+  small AVAssetImageGenerator tool; the growth was invisible. The current
+  curve is (0.25, 0.6, 0.3, 1). Check any retune the same way. A still
+  screenshot cannot show this.
+- `isAnimatingPresentation` and `restingFrame` are gone, because the window
+  no longer changes size to animate.
+
+**`ChromeMetrics`** (in `Support/Metrics.swift`) sizes the viewer chrome. It
+is plain `Metrics` × a per-role boost × a display factor. The display factor is
+the screen's short edge / 1100 pt, clamped to 1.0–1.45, which gives 1.45 on the
+4K main display, 1.2 on the laptop and 1.1 on the portrait panel. The settings
+and update windows stay on plain `Metrics`. It is adopted in
+`AppDelegate.present` before the controller is built, and again on
+`windowDidChangeScreen`.
+
+**Toolbar.** There are three Liquid Glass capsules in one container: zoom
+(−, +, 1:1), the transport (‹, a round pearl slideshow disc, ›) and file actions
+(rotate ×2, reveal). This follows Picasa's layout, where a round play button
+was the centrepiece. Each capsule is pinned to an explicit height, because the
+glass views otherwise all came out at the plain buttons' height and the disc
+broke out of the middle one. The play glyph is shifted right by 10 % of its
+width (`opticallyCentred`). Controls with nothing to do recede (`isEnabled`)
+rather than disappear. 1:1 lights up while at actual size.
+
+**Scrim bug (was in every earlier version).** `CAGradientLayer` unit
+coordinates run bottom-up in this view, so the top scrim was darkest at its
+*inner* edge and ended in a hard line across the photo. It now uses
+smoothstep stops starting at y = 1.
+
+**Also:** a caption line (position · pixel dimensions · file size); a
+checkerboard (`imageLayer.backgroundColor` as a pattern colour) behind images
+with alpha; a lifted current thumbnail (1.22×) with the neighbours standing
+off; no fit margin in windowed mode, so the photo truly hugs the frame; and the
+window forced to dark appearance.
+
+**Picasa research** (FlyPhotos/ImageGlass issue threads filed by ex-Picasa
+users, xahlee's key list). The most praised behaviours were:
+
+1. speed
+2. the transparent overlay
+3. the wheel over the filmstrip scrubbing
+4. click-outside
+5. "feels alive" animations
+6. a filmstrip that hides completely
+
+We already had all of these. The gaps we closed:
+
+- ↑/↓ zoom (they used to navigate)
+- `1` toggles fit ⇄ 100%
+- Return toggles the window
+- a slideshow
+- dimensions in the caption
+- the checkerboard
+
+**Not done:** a glide on image change and pan inertia. One user complained
+that motion slows review, so if these are added they should cancel on input.
 
 ## 2h. The zoom clamp, and why it snapped
 

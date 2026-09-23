@@ -94,10 +94,14 @@ One setting in **View › Playback**: Click to Play (default), Play Automaticall
 | Key | |
 |---|---|
 | `←` `→` | Previous / next |
+| `↑` `↓` | Zoom in / out, as in Picasa |
 | `⌥` + arrow, `Page Up/Down` | Jump 10 |
 | `Home` / `End` | First / last |
 | `Space` | Play, or next if there's nothing to play |
-| `0` / `1` | Fit to window / actual size |
+| `0` | Fit to window |
+| `1` | Actual size, or back to fit |
+| `S` | Slideshow |
+| `Return` | Switch between full-screen and a window |
 | Mouse wheel | Zoom to the pointer, smoothly |
 | `⌃` + wheel | Previous / next |
 | Trackpad scroll / pinch | Pan / zoom |

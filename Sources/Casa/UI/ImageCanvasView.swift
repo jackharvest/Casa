@@ -106,7 +106,10 @@ final class ImageCanvasView: NSView {
     /// the padding — a few percent of linear size — is invisible next to what
     /// it buys.
     private var contentRect: CGRect {
-        let margin = Metrics.spacing(4)
+        // No margin in a window: there the frame *is* the photograph's edge,
+        // and a margin shows up as a dark border inside it.
+        let windowed = (window as? ViewerWindow)?.presentation == .windowed
+        let margin = windowed ? 0 : ChromeMetrics.spacing(3)
         let left = contentInsets.left + margin
         let top = contentInsets.top + margin
         let width = bounds.width - left - contentInsets.right - margin
@@ -297,6 +300,13 @@ final class ImageCanvasView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         imageLayer.contents = image.cgImage
+        // A transparent image gets a checkerboard beneath it. Without one a
+        // PNG's transparent edge is indistinguishable from the ground behind
+        // it, and a stray semi-transparent pixel — the kind of flaw you open
+        // a viewer to catch — is invisible.
+        let transparent = Self.hasAlpha(image.cgImage)
+        imageLayer.isOpaque = !transparent
+        imageLayer.backgroundColor = transparent ? Self.checkerboard : nil
         CATransaction.commit()
 
         if isDifferentImage || !preservingZoom {
@@ -306,7 +316,31 @@ final class ImageCanvasView: NSView {
             applyGeometry(animated: false)
         }
         updateFilters()
+        delegate?.canvasDidShowImage(self)
     }
+
+    private static func hasAlpha(_ image: CGImage) -> Bool {
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: false
+        default: true
+        }
+    }
+
+    /// Two close greys, so the pattern says "transparent" without competing
+    /// with the picture. Eight-point squares hold their size at any zoom,
+    /// because the layer's bounds carry the scale rather than a transform.
+    private static let checkerboard: CGColor = {
+        let edge: CGFloat = 8
+        let tile = NSImage(size: NSSize(width: edge * 2, height: edge * 2), flipped: false) { rect in
+            NSColor(white: 0.30, alpha: 1).setFill()
+            rect.fill()
+            NSColor(white: 0.22, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: edge, height: edge).fill()
+            NSRect(x: edge, y: edge, width: edge, height: edge).fill()
+            return true
+        }
+        return NSColor(patternImage: tile).cgColor
+    }()
 
     func clear() {
         CATransaction.begin()
@@ -337,8 +371,6 @@ final class ImageCanvasView: NSView {
 
     override func layout() {
         super.layout()
-        // Nothing useful to compute while the window is squeezed into a line.
-        if (window as? ViewerWindow)?.isAnimatingPresentation == true { return }
         if isFitted {
             fit(animated: false)
         } else {
@@ -535,6 +567,89 @@ final class ImageCanvasView: NSView {
         // was not even on screen yet.
         guard imagePixelSize.width > 0 else { return }
         delegate?.canvas(self, didChangeZoomTo: scale, isFitted: isFitted)
+    }
+
+    // MARK: - Arrival and departure
+
+    /// True once a photograph has been put on screen. The window waits for
+    /// this before it opens, so the opening gesture has something to grow.
+    var hasImage: Bool { imagePixelSize.width > 0 }
+
+    /// The photograph's pixel dimensions as displayed — swapped while it is
+    /// turned on its side, because that is the shape you are looking at.
+    var imageSize: CGSize {
+        quarterTurns % 2 == 0
+            ? imagePixelSize
+            : CGSize(width: imagePixelSize.height, height: imagePixelSize.width)
+    }
+
+    /// One image pixel per screen pixel, give or take rounding.
+    var isAtActualSize: Bool {
+        hasImage && abs(scale * backingScale - 1) < 0.005
+    }
+
+    private static let arrivalKey = "casa.arrival"
+
+    /// Picasa's opening: the photograph grows out of a single point in the
+    /// middle of the screen and lands at its fitted size.
+    ///
+    /// Presentation-layer animations only. The model geometry is already
+    /// final, so a sharper tier landing mid-flight, a resize, or a click that
+    /// starts a zoom all read correctly — the animation just stops being the
+    /// thing on screen.
+    func animateArrival(from origin: CGPoint, duration: TimeInterval) {
+        guard hasImage else { return }
+        for target in [imageLayer, playerLayer] {
+            target.add(Self.flight(of: target, point: origin, arriving: true, duration: duration),
+                       forKey: Self.arrivalKey)
+        }
+    }
+
+    /// The reverse: back into the point it came from. The layers are left at
+    /// the point, because the window closes the moment this finishes.
+    func animateDeparture(to origin: CGPoint, duration: TimeInterval) {
+        guard hasImage else { return }
+        for target in [imageLayer, playerLayer] {
+            target.add(Self.flight(of: target, point: origin, arriving: false, duration: duration),
+                       forKey: Self.arrivalKey)
+        }
+    }
+
+    /// One flight between a point and the layer's resting geometry.
+    ///
+    /// Scale and position move together, so the photograph travels from the
+    /// middle of the screen to wherever the chrome insets have centred it
+    /// rather than growing in place beside the origin.
+    private static func flight(of layer: CALayer, point: CGPoint,
+                               arriving: Bool, duration: TimeInterval) -> CAAnimation {
+        let resting = layer.transform
+        // A pixel, near enough, of whatever size the photograph lands at.
+        let seed = max(0.004, 2 / max(layer.bounds.width, layer.bounds.height, 1))
+        let collapsed = CATransform3DScale(resting, seed, seed, 1)
+
+        let scale = CABasicAnimation(keyPath: "transform")
+        scale.fromValue = NSValue(caTransform3D: arriving ? collapsed : resting)
+        scale.toValue = NSValue(caTransform3D: arriving ? resting : collapsed)
+
+        let move = CABasicAnimation(keyPath: "position")
+        move.fromValue = NSValue(point: arriving ? point : layer.position)
+        move.toValue = NSValue(point: arriving ? layer.position : point)
+
+        let group = CAAnimationGroup()
+        group.animations = [scale, move]
+        group.duration = duration
+        // Arriving decelerates, but not so hard that the growth is spent in
+        // the first two frames — a curve that front-loaded finishes before the
+        // eye has registered anything and reads as a plain fade. Leaving
+        // accelerates away, so the eye lets go of it at once.
+        group.timingFunction = arriving
+            ? CAMediaTimingFunction(controlPoints: 0.25, 0.6, 0.3, 1)
+            : CAMediaTimingFunction(controlPoints: 0.55, 0, 0.9, 0.45)
+        if !arriving {
+            group.fillMode = .forwards
+            group.isRemovedOnCompletion = false
+        }
+        return group
     }
 
     /// The content size a window should take to hug this photograph.
@@ -768,4 +883,6 @@ protocol ImageCanvasDelegate: AnyObject {
     func canvas(_ canvas: ImageCanvasView, didChangeZoomTo scale: CGFloat, isFitted: Bool)
     func canvasDidChangeBackingScale(_ canvas: ImageCanvasView, to scale: CGFloat)
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView)
+    /// A bitmap is on screen — any tier, including the cheap first one.
+    func canvasDidShowImage(_ canvas: ImageCanvasView)
 }
