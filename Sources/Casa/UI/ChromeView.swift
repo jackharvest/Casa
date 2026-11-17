@@ -3,12 +3,16 @@ import AppKit
 /// The overlay: a caption above, a toolbar and the rail below, nothing in the
 /// middle.
 ///
-/// The toolbar is three glass capsules — zoom, the transport, and the
-/// file-level actions — set in one container so the glass reads as one object
-/// that happens to be divided, not three stickers. The middle capsule carries
-/// Picasa's centrepiece: previous and next either side of a round play button,
-/// which starts a slideshow. It is slightly taller than its neighbours, so the
-/// eye lands on it first.
+/// The toolbar is five glass capsules set in one container, so the glass reads
+/// as one object that happens to be divided, not five stickers: zoom and
+/// rotate to the left, the editing tools and the file-level actions to the
+/// right, and between them Picasa's centrepiece — previous and next either
+/// side of a round play button, which starts a slideshow. That capsule is
+/// slightly taller than its neighbours and sits on the window's centre line,
+/// so the eye lands on it first.
+///
+/// In a narrow window the outer capsules stand down, innermost last, rather
+/// than the row being clipped. Everything they held is still in the menus.
 ///
 /// Chrome over a photograph is a legibility problem — white text on an unknown
 /// image. The main answer is a soft scrim behind each edge, one compositing
@@ -34,6 +38,13 @@ final class ChromeView: NSView {
     private var buttons: [IconButton] = []
     private(set) var slideshowButton: IconButton!
     private var actualSizeButton: IconButton!
+    private var previousButton: IconButton!
+    private var nextButton: IconButton!
+    private var editButtons: [IconButton] = []
+    private var rotateButtons: [IconButton] = []
+    private(set) var infoButton: IconButton!
+    private(set) var shareButton: IconButton!
+    private(set) var moreButton: IconButton!
 
     let filmstrip = FilmstripView(frame: .zero)
     private var playButton: IconButton!
@@ -125,25 +136,37 @@ final class ChromeView: NSView {
         actualSizeButton = button("1.magnifyingglass", "Actual Size / Fit", "1",
                                   #selector(ViewerController.toggleActualSize(_:)))
 
-        let previous = button("chevron.left", "Previous", "←",
-                              #selector(ViewerController.goPrevious(_:)), size: 1.05)
+        previousButton = button("chevron.left", "Previous", "←",
+                                #selector(ViewerController.goPrevious(_:)), size: 1.05)
         slideshowButton = button("play.fill", "Slideshow", "S",
                                  #selector(ViewerController.toggleSlideshow(_:)),
                                  style: .disc, size: 1.2)
-        let next = button("chevron.right", "Next", "→",
-                          #selector(ViewerController.goNext(_:)), size: 1.05)
+        nextButton = button("chevron.right", "Next", "→",
+                            #selector(ViewerController.goNext(_:)), size: 1.05)
 
         let rotateLeft = button("rotate.left", "Rotate Left", "⇧⌘[",
                                 #selector(ViewerController.rotateLeft(_:)))
         let rotateRight = button("rotate.right", "Rotate Right", "⇧⌘]",
                                  #selector(ViewerController.rotateRight(_:)))
-        let reveal = button("folder", "Reveal in Finder", "⌘R",
-                            #selector(ViewerController.revealInFinder(_:)))
+        rotateButtons = [rotateLeft, rotateRight]
+
+        let crop = button("crop", "Crop", "⌘K", #selector(ViewerController.crop(_:)))
+        let adjust = button("slider.horizontal.3", "Adjust Color", "⌥⌘A",
+                            #selector(ViewerController.adjustColor(_:)))
+        let markup = button("pencil.tip.crop.circle", "Markup", "⇧⌘A",
+                            #selector(ViewerController.toggleMarkup(_:)))
+        editButtons = [crop, adjust, markup]
+
+        infoButton = button("info.circle", "Info", "⌘I", #selector(ViewerController.toggleInspector(_:)))
+        shareButton = button("square.and.arrow.up", "Share", nil, #selector(ViewerController.share(_:)))
+        moreButton = button("ellipsis", "More", nil, #selector(ViewerController.showMoreMenu(_:)))
 
         let sets: [[IconButton]] = [
             [zoomOut, zoomIn, actualSizeButton],
-            [previous, slideshowButton, next],
-            [rotateLeft, rotateRight, reveal],
+            [rotateLeft, rotateRight],
+            [previousButton, slideshowButton, nextButton],
+            editButtons,
+            [infoButton, shareButton, moreButton],
         ]
         buttons = sets.flatMap { $0 }
 
@@ -179,7 +202,10 @@ final class ChromeView: NSView {
             captionStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             captionStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.6),
 
-            toolbar.centerXAnchor.constraint(equalTo: centerXAnchor),
+            // The play disc, not the row, is what sits on the centre line.
+            // The two sides hold different numbers of controls, and centring
+            // the row would leave its centrepiece visibly off to one side.
+            slideshowButton.centerXAnchor.constraint(equalTo: centerXAnchor),
 
             filmstrip.leadingAnchor.constraint(equalTo: leadingAnchor),
             filmstrip.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -249,7 +275,49 @@ final class ChromeView: NSView {
         topScrim.refresh()
         bottomScrim.refresh()
         needsLayout = true
+        fitToolbar()
     }
+
+    // MARK: - Narrow windows
+
+    /// Which capsules to give up as the window narrows, first to go first.
+    /// Pairs, one from each side, so the play disc stays centred.
+    private static let standDownOrder: [[Int]] = [[1, 3], [0, 4]]
+
+    /// Hides outer capsules until the row fits the window.
+    private func fitToolbar() {
+        guard bounds.width > 0 else { return }
+        for pill in pills { pill.isHidden = false }
+        let room = bounds.width - ChromeMetrics.spacing(4)
+        for group in Self.standDownOrder {
+            guard sideOverflows(room: room) else { break }
+            for index in group { pills[index].isHidden = true }
+        }
+    }
+
+    /// Whether either half of the row, measured from the play disc, is wider
+    /// than half the window.
+    private func sideOverflows(room: CGFloat) -> Bool {
+        let visible = zip(pills, groups).enumerated().filter { !$0.element.0.isHidden }
+        let centre = visible.firstIndex { $0.offset == 2 } ?? 0
+        func width(_ slice: ArraySlice<(offset: Int, element: (NSView, NSStackView))>) -> CGFloat {
+            slice.reduce(0) { $0 + $1.element.1.fittingSize.width + toolbarRow.spacing }
+        }
+        let middle = groups[2].fittingSize.width / 2
+        let left = width(visible[..<centre]) + middle
+        let right = width(visible[(centre + 1)...]) + middle
+        return max(left, right) > room / 2
+    }
+
+    override func layout() {
+        super.layout()
+        if bounds.width != fittedWidth {
+            fittedWidth = bounds.width
+            fitToolbar()
+        }
+    }
+
+    private var fittedWidth: CGFloat = 0
 
     // MARK: - Insets
 
@@ -294,15 +362,33 @@ final class ChromeView: NSView {
         playButton.isHidden = !canPlay || isPlaying
     }
 
-    private var previousButton: IconButton { groups[1].arrangedSubviews[0] as! IconButton }
-    private var nextButton: IconButton { groups[1].arrangedSubviews[2] as! IconButton }
-
     /// Dims previous and next at the ends of the folder, and the slideshow
     /// when there is nothing to show.
-    func updateNavigation(index: Int, count: Int) {
-        previousButton.isEnabled = index > 0
-        nextButton.isEnabled = index < count - 1
-        slideshowButton.isEnabled = count > 1
+    func updateNavigation(canGoBack: Bool, canGoForward: Bool, canPlay: Bool) {
+        previousButton.isEnabled = canGoBack
+        nextButton.isEnabled = canGoForward
+        slideshowButton.isEnabled = canPlay
+    }
+
+    /// Dims the tools that change pixels, for things that have none to
+    /// change — a movie, an animation.
+    func updateEditing(canEdit: Bool, canMarkUp: Bool, canRotate: Bool) {
+        for button in editButtons { button.isEnabled = canEdit }
+        // Markup is the last of the three, and the one a document shares.
+        editButtons.last?.isEnabled = canMarkUp
+        for button in rotateButtons { button.isEnabled = canRotate }
+    }
+
+    /// Stands the whole overlay down while a tool has the floor. Its own bar
+    /// takes the toolbar's place, and controls fading in and out around a
+    /// crop frame would only be in the way.
+    var isSuspended = false {
+        didSet {
+            guard isSuspended != oldValue else { return }
+            idleTimer?.invalidate()
+            isHidden = isSuspended
+            if !isSuspended { flash() }
+        }
     }
 
     /// Reflects the slideshow in the toolbar's centrepiece.
@@ -340,6 +426,7 @@ final class ChromeView: NSView {
     /// Shows the chrome and restarts the idle countdown. Driven by mouse
     /// movement from the controller.
     func flash() {
+        guard !isSuspended else { return }
         setVisible(true)
         idleTimer?.invalidate()
         // `--keep-chrome` pins the controls open. Reviewing the chrome's

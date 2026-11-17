@@ -58,11 +58,11 @@ enum DefaultHandler {
         Group(
             id: "pdf",
             title: "PDF",
-            detail: "Casa shows page one. You probably want Preview for documents",
+            detail: "Every page, with search, markup, forms and page editing",
             symbol: "doc.richtext",
             tint: NSColor(red: 0.898, green: 0.600, blue: 0.114, alpha: 1),
             types: [UTType.pdf],
-            recommended: false
+            recommended: true
         ),
     ]
 

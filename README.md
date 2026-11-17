@@ -54,9 +54,27 @@ Scroll the wheel and it zooms smoothly into whatever is under your pointer. The
 percentage shows beside it. Double-click to zoom in on a spot, and double-click
 again to see the whole photo.
 
+## Everything Preview does, without opening Preview
+
+- **Crop, adjust color, resize, flip**, and **remove the background** from a
+  photo. Nothing is written until you save, and saving puts the original in
+  the Trash, so you can always get it back.
+- **Mark up** photos with arrows, shapes, text, a highlighter and a cover-up
+  box.
+- **Select and copy the text** in any photo or screenshot.
+- **Read PDFs properly**: every page, a thumbnail sidebar, search, text
+  selection, form filling, highlights and annotations. Reorder, rotate,
+  delete and merge pages. Export with a password or at a smaller size.
+- **Print**, with the paper turned to suit the photo.
+- **Export** to JPEG, PNG, HEIC, TIFF, PDF and whatever else your Mac can
+  write.
+- **Move to Trash** with ⌘⌫ and carry on to the next photo. ⌘Z brings it back.
+- An **inspector** for camera, lens, exposure and location.
+
 ## Just enough buttons
 
-Zoom, previous and next, a slideshow, rotate, and show in Finder. Everything
+Zoom, previous and next, a slideshow, rotate, crop, color, markup, info and
+share, with the rest under a "more" button and a right-click. Everything
 fades away when you stop moving the mouse, so it's just you and the photo.
 Rotating saves to the file, without losing any quality.
 

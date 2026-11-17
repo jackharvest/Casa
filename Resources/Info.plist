@@ -45,6 +45,25 @@
             <array>
                 <string>public.image</string>
                 <string>public.camera-raw-image</string>
+                <string>public.svg-image</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>     <string>PDF Document</string>
+            <key>CFBundleTypeRole</key>     <string>Editor</string>
+            <key>LSHandlerRank</key>        <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.adobe.pdf</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>     <string>Movie</string>
+            <key>CFBundleTypeRole</key>     <string>Viewer</string>
+            <key>LSHandlerRank</key>        <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.movie</string>
             </array>
         </dict>
     </array>

@@ -4,9 +4,33 @@ import AppKit
 /// keyboard map.
 final class ViewerController: NSViewController, NSMenuItemValidation {
 
-    private let canvas = ImageCanvasView(frame: .zero)
-    private var chrome: ChromeView!
-    private var session: Session!
+    let canvas = ImageCanvasView(frame: .zero)
+    var chrome: ChromeView!
+    var session: Session!
+
+    // The document reader, built the first time a PDF is shown.
+    lazy var pdfPane: PDFPane = makePDFPane()
+    var pdfPaneIfLoaded: PDFPane?
+    var pdfEdges: (top: NSLayoutConstraint, bottom: NSLayoutConstraint,
+                   leading: NSLayoutConstraint, trailing: NSLayoutConstraint)?
+    var readerToolbar: ReaderToolbar?
+    var lastQuery = ""
+
+    // Editing. At most one tool is up at a time.
+    var editor: ImageEditor?
+    var cropOverlay: CropOverlayView?
+    var markupView: MarkupView?
+    var toolBar: EditBar?
+    var adjustPanel: AdjustPanel?
+    var adjustProxy: CGImage?
+    var adjustGeneration = 0
+    var inspector: InspectorPanel?
+    /// True while a slow edit is running, so a second cannot start under it.
+    var isWorking = false
+    /// A message waiting for the caption's next redraw. See `announce`.
+    var pendingNote: String?
+    /// Selectable text in photographs, built on first use.
+    var liveText: LiveText?
     private var environmentMonitor: EnvironmentMonitor?
     private var mouseIdleTracking: NSTrackingArea?
 
@@ -47,6 +71,10 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     override func viewDidLoad() {
         super.viewDidLoad()
         canvas.delegate = self
+        canvas.contextMenuProvider = { MenuBuilder.contextMenu() }
+        canvas.onGeometryChange = { [weak self] in self?.canvasGeometryChanged() }
+        canvas.onDrop = { [weak self] url in self?.open(url) }
+        canvas.onSelectAll = { [weak self] in self?.liveText?.selectAll() }
         chrome.filmstrip.delegate = self
         session = Session(canvas: canvas)
         session.onChange = { [weak self] session in
@@ -103,10 +131,22 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     /// The photograph currently on screen, for the updater's relaunch.
     var currentFile: URL? { session?.currentURL }
 
+    /// Opens a file the user asked for by name — a double-click, a drop, the
+    /// Open panel — as opposed to one reached by walking the folder.
     func open(_ url: URL) {
-        session.open(url)
-        refreshChrome(for: session)
-        startBenchmarkIfRequested()
+        leaveCurrent { [self] in
+            session.open(url)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            refreshChrome(for: session)
+            // A PDF someone opened on purpose is something they mean to
+            // read, so it starts in a window with the reader's furniture.
+            // One merely passed while walking a folder floats like a photo.
+            if session.currentIsDocument,
+               (view.window as? ViewerWindow)?.presentation == .fullBleed {
+                setPresentation(.windowed, animated: false)
+            }
+            startBenchmarkIfRequested()
+        }
     }
 
     // MARK: - Benchmark
@@ -153,24 +193,71 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         (view.window as? ViewerWindow)?.applyGround()
         canvas.environmentChanged()
         chrome.applyMetrics()
+        toolBar?.applyMetrics()
+        inspector?.applyMetrics()
+        adjustPanel?.applyMetrics()
         updateCanvasInsets()
         Log.render.debug("Environment changed; metrics rebuilt")
     }
 
-    private func refreshChrome(for session: Session) {
-        if let window = view.window as? ViewerWindow, window.presentation == .windowed {
-            window.title = session.currentURL?.lastPathComponent ?? "Casa"
-        }
+    func refreshChrome(for session: Session) {
+        syncDocumentMode()
+        updateWindowTitle()
         chrome.updatePlayback(canPlay: canvas.playable != .none, isPlaying: canvas.isPlaying)
-        chrome.updateNavigation(index: session.index, count: session.urls.count)
+        updateNavigationControls()
         chrome.update(
             filename: session.currentURL?.lastPathComponent ?? "",
-            detail: detailDescription
+            detail: detailDescription,
+            note: pendingNote
         )
+        pendingNote = nil
         chrome.filmstrip.update(urls: session.urls,
                                 currentIndex: session.index,
                                 animated: true)
         updateCanvasInsets()
+        refreshInspector()
+    }
+
+    func updateWindowTitle() {
+        guard let window = view.window as? ViewerWindow, window.presentation == .windowed else { return }
+        window.title = session.currentURL?.lastPathComponent ?? "Casa"
+        window.subtitle = isDocumentActive ? documentPositionDescription : ""
+        window.isDocumentEdited = hasUnsavedChanges
+    }
+
+    /// Previous and next mean pages inside a document and files outside one.
+    func updateNavigationControls() {
+        let first = session.index <= 0, last = session.index >= session.urls.count - 1
+        if isDocumentActive {
+            let pane = pdfPane
+            chrome.updateNavigation(canGoBack: pane.pageIndex > 0 || !first,
+                                    canGoForward: pane.pageIndex < pane.pageCount - 1 || !last,
+                                    canPlay: false)
+            chrome.updateEditing(canEdit: false, canMarkUp: true, canRotate: true)
+        } else {
+            chrome.updateNavigation(canGoBack: !first, canGoForward: !last,
+                                    canPlay: session.urls.count > 1)
+            chrome.updateEditing(canEdit: canEditCurrent, canMarkUp: canEditCurrent,
+                                 canRotate: session.currentURL != nil)
+        }
+        chrome.infoButton.isOn = inspector != nil
+    }
+
+    /// Height a tool's bar claims along the bottom of a window.
+    var toolBarInset: CGFloat {
+        ChromeMetrics.hitTarget() + ChromeMetrics.spacing(1.5) + ChromeMetrics.spacing(5)
+    }
+
+    /// Shows a one-line message in place of the detail line. It stays until
+    /// the next navigation replaces it.
+    /// - Parameter afterReload: the file is about to be shown again from
+    ///   disk, which redraws the caption; hold the note until that happens
+    ///   so it is not wiped the moment it appears.
+    func announce(_ note: String, afterReload: Bool = false) {
+        if afterReload { pendingNote = note }
+        chrome.update(filename: session.currentURL?.lastPathComponent ?? "",
+                      detail: detailDescription, note: note)
+        chrome.flash()
     }
 
     /// The line under the filename: where you are in the folder, the
@@ -179,8 +266,10 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     /// "is this the big one?" without opening Get Info.
     var detailDescription: String {
         var parts = [session.positionDescription]
+        if isDocumentActive { parts.append(documentPositionDescription) }
+        if hasUnsavedChanges { parts.append("Edited") }
         let size = canvas.imageSize
-        if size.width > 0 {
+        if size.width > 0, !isDocumentActive {
             parts.append("\(Int(size.width)) × \(Int(size.height))")
         }
         if let url = session.currentURL,
@@ -193,23 +282,31 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     /// Hands the canvas the area the chrome is using, so a fitted photograph
     /// is composed in the space that is actually free rather than centred
     /// behind the rail.
-    private func updateCanvasInsets() {
+    func updateCanvasInsets() {
         chrome.showsFilmstrip = session.urls.count > 1
+
+        // A side panel takes its width off the right, in either presentation,
+        // so the photograph is re-fitted beside it rather than hidden by it.
+        let panel = (inspector != nil || adjustPanel != nil)
+            ? SidePanel.preferredWidth + ChromeMetrics.spacing(3) : 0
 
         // In a window the photograph fills the frame and the chrome floats over
         // it, so there are no insets to reserve. Full-screen keeps them,
         // because there the surround is deliberate space rather than a bar.
         if (view.window as? ViewerWindow)?.presentation == .windowed {
-            canvas.contentInsets = NSEdgeInsets()
-            return
+            // A tool's bar is not transient the way the chrome is, so the
+            // photograph is kept clear of it.
+            let bar = toolBar != nil ? toolBarInset : 0
+            canvas.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bar, right: panel)
+        } else {
+            canvas.contentInsets = NSEdgeInsets(
+                top: chrome.topInset,
+                left: ChromeMetrics.spacing(2),
+                bottom: chrome.bottomInset,
+                right: ChromeMetrics.spacing(2) + panel
+            )
         }
-
-        canvas.contentInsets = NSEdgeInsets(
-            top: chrome.topInset,
-            left: ChromeMetrics.spacing(2),
-            bottom: chrome.bottomInset,
-            right: ChromeMetrics.spacing(2)
-        )
+        layoutDocumentPane()
     }
 
     // MARK: - Mouse
@@ -220,16 +317,46 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
     // MARK: - Actions
 
-    @objc func goNext(_ sender: Any?) { step(by: 1) }
-    @objc func goPrevious(_ sender: Any?) { step(by: -1) }
-    @objc func zoomToFit(_ sender: Any?) { canvas.fit(animated: true) }
-    @objc func zoomToActual(_ sender: Any?) { canvas.actualSize(animated: true) }
-    @objc func zoomIn(_ sender: Any?) { zoomAboutCentre(1.25) }
-    @objc func zoomOut(_ sender: Any?) { zoomAboutCentre(1 / 1.25) }
+    /// The toolbar's arrows and the arrow keys: a page inside a document, a
+    /// file otherwise.
+    @objc func goNext(_ sender: Any?) {
+        if isDocumentActive { pdfPane.turnPage(by: 1) } else { step(by: 1) }
+    }
+
+    @objc func goPrevious(_ sender: Any?) {
+        if isDocumentActive { pdfPane.turnPage(by: -1) } else { step(by: -1) }
+    }
+
+    /// The menu's Next and Previous: always a file, so there is a way past a
+    /// three-hundred-page PDF in the middle of a folder.
+    @objc func goNextFile(_ sender: Any?) { step(by: 1) }
+    @objc func goPreviousFile(_ sender: Any?) { step(by: -1) }
+
+    @objc func zoomToFit(_ sender: Any?) {
+        if isDocumentActive { pdfPane.zoomToFit() } else { canvas.fit(animated: true) }
+    }
+
+    @objc func zoomToActual(_ sender: Any?) {
+        if isDocumentActive { pdfPane.zoomToActualSize() } else { canvas.actualSize(animated: true) }
+    }
+
+    @objc func zoomIn(_ sender: Any?) {
+        if isDocumentActive { pdfPane.zoomIn() } else { zoomAboutCentre(1.25) }
+    }
+
+    @objc func zoomOut(_ sender: Any?) {
+        if isDocumentActive { pdfPane.zoomOut() } else { zoomAboutCentre(1 / 1.25) }
+    }
 
     /// Picasa's `1`: to actual size, and back to fit if already there.
     @objc func toggleActualSize(_ sender: Any?) {
-        if canvas.isAtActualSize { canvas.fit(animated: true) } else { canvas.actualSize(animated: true) }
+        if isDocumentActive {
+            if pdfPane.isAtActualSize { pdfPane.zoomToFit() } else { pdfPane.zoomToActualSize() }
+        } else if canvas.isAtActualSize {
+            canvas.fit(animated: true)
+        } else {
+            canvas.actualSize(animated: true)
+        }
     }
 
     private func zoomAboutCentre(_ factor: CGFloat) {
@@ -238,9 +365,14 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
     /// A step the user asked for. It restarts a running slideshow's clock, so
     /// stepping back to look again is not immediately overruled.
-    private func step(by offset: Int) {
-        session.advance(by: offset)
-        if slideshowTimer != nil { scheduleSlideshowStep() }
+    func step(by offset: Int) {
+        guard !session.urls.isEmpty else { return }
+        let target = min(max(0, session.index + offset), session.urls.count - 1)
+        guard target != session.index else { return }
+        leaveCurrent { [self] in
+            session.go(to: target)
+            if slideshowTimer != nil { scheduleSlideshowStep() }
+        }
     }
 
     // MARK: - Slideshow
@@ -254,6 +386,11 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         if slideshowTimer != nil {
             stopSlideshow()
             chrome.flash()
+            return
+        }
+        guard !hasUnsavedChanges, activeTool == nil else {
+            // A slideshow would walk straight off unsaved work.
+            leaveCurrent { [self] in toggleSlideshow(sender) }
             return
         }
         // At the end of the folder, a slideshow starts from the beginning
@@ -293,6 +430,17 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     /// Turns the picture on screen and records the turn. The write happens when
     /// the user moves on, which is when Picasa committed one too.
     private func rotate(by turns: Int) {
+        if isDocumentActive {
+            pdfPane.rotateCurrentPage(by: turns)
+            return
+        }
+        // Once the picture is being edited a turn is one more edit, baked
+        // into the pixels with the rest, rather than a tag on the file.
+        if let editor, editor.url == session.currentURL {
+            guard activeTool == nil, let turned = ImageEdits.rotate(editor.image, quarterTurns: turns) else { return }
+            editor.apply(turned, named: turns > 0 ? "Rotate Right" : "Rotate Left", undoManager: undoManager)
+            return
+        }
         canvas.rotate(by: turns)
         session.noteRotation(turns)
         if let url = session.currentURL {
@@ -305,6 +453,16 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         chrome.flash()
     }
     @objc func dismissViewer(_ sender: Any?) { dismissWindow() }
+
+    /// The drawing tool in use, if any.
+    enum Tool { case crop, markup, adjust }
+
+    var activeTool: Tool? {
+        if cropOverlay != nil { return .crop }
+        if markupView != nil { return .markup }
+        if adjustPanel != nil { return .adjust }
+        return nil
+    }
 
     /// Play or pause the current animation or video.
     @objc func togglePlayback(_ sender: Any?) {
@@ -367,22 +525,73 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(toggleFinderSort(_:)) {
+        let hasFile = session.currentURL != nil
+        let isDocument = isDocumentActive
+        let isWindowed = (view.window as? ViewerWindow)?.presentation == .windowed
+        let canStartEdit = canEditCurrent && !isWorking && activeTool == nil
+
+        switch menuItem.action {
+        case #selector(toggleFinderSort(_:)):
             menuItem.state = Preferences.followsFinderSort ? .on : .off
-        }
-        if menuItem.action == #selector(toggleHidesDock(_:)) {
+        case #selector(toggleHidesDock(_:)):
             menuItem.state = Preferences.hidesDock ? .on : .off
-        }
-        if menuItem.action == #selector(setPlaybackPolicy(_:)) {
+        case #selector(setPlaybackPolicy(_:)):
             menuItem.state = (menuItem.representedObject as? String) == Preferences.playbackPolicy.rawValue ? .on : .off
-        }
-        if menuItem.action == #selector(toggleSlideshow(_:)) {
+        case #selector(toggleSlideshow(_:)):
             menuItem.title = slideshowTimer != nil ? "Stop Slideshow" : "Start Slideshow"
-            return session.urls.count > 1
-        }
-        if menuItem.action == #selector(togglePlayback(_:)) {
+            return session.urls.count > 1 && !isDocument
+        case #selector(togglePlayback(_:)):
             menuItem.title = canvas.isPlaying ? "Pause" : "Play"
             return canvas.playable != .none
+
+        case #selector(goNextFile(_:)):
+            return session.index < session.urls.count - 1
+        case #selector(goPreviousFile(_:)):
+            return session.index > 0
+
+        case #selector(save(_:)):
+            return hasUnsavedChanges
+        case #selector(revertToSaved(_:)):
+            return hasUnsavedChanges
+        case #selector(exportDocument(_:)), #selector(printDocument(_:)):
+            return hasFile && !isWorking && !isVideo
+        case #selector(share(_:)), #selector(duplicateFile(_:)), #selector(renameFile(_:)),
+             #selector(moveToTrash(_:)), #selector(revealInFinder(_:)), #selector(copyPath(_:)),
+             #selector(copyImage(_:)), #selector(copy(_:)):
+            return hasFile
+        case #selector(setDesktopPicture(_:)):
+            return hasFile && !isDocument && !isVideo
+
+        case #selector(crop(_:)), #selector(adjustColor(_:)), #selector(adjustSize(_:)),
+             #selector(flipHorizontal(_:)), #selector(flipVertical(_:)), #selector(removeBackground(_:)):
+            return canStartEdit
+        case #selector(rotateLeft(_:)), #selector(rotateRight(_:)):
+            return hasFile && (activeTool == nil)
+        case #selector(toggleMarkup(_:)):
+            menuItem.title = isMarkupActive ? "Hide Markup Tools" : "Show Markup Tools"
+            return isDocument || isMarkupActive || canStartEdit
+
+        case #selector(toggleInspector(_:)):
+            menuItem.title = inspector != nil ? "Hide Inspector" : "Show Inspector"
+            return hasFile
+
+        case #selector(toggleSidebar(_:)):
+            menuItem.title = pdfPaneIfLoaded?.showsSidebar == true && isWindowed ? "Hide Sidebar" : "Show Sidebar"
+            return isDocument
+        case #selector(setPageLayout(_:)):
+            menuItem.state = isDocument && pdfPane.readingMode.rawValue == menuItem.tag ? .on : .off
+            return isDocument
+        case #selector(goToPage(_:)), #selector(goToFirstPage(_:)), #selector(goToLastPage(_:)),
+             #selector(insertPagesFromFile(_:)), #selector(insertBlankPage(_:)),
+             #selector(find(_:)), #selector(highlightSelection(_:)),
+             #selector(underlineSelection(_:)), #selector(strikeThroughSelection(_:)):
+            return isDocument
+        case #selector(findNext(_:)), #selector(findPrevious(_:)):
+            return isDocument && !pdfPane.matches.isEmpty
+        case #selector(deletePage(_:)):
+            return isDocument && pdfPane.canDeletePage
+        default:
+            break
         }
         return true
     }
@@ -400,16 +609,35 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
+        // Words selected in the photograph are what the user is looking at
+        // and pointing to; they outrank the photograph itself.
+        if let text = liveText?.selectedText {
+            pasteboard.setString(text, forType: .string)
+            announce("Text copied")
+            return
+        }
+
+        // With edits in hand, what is on screen is what gets copied — not the
+        // file, which does not have them yet.
+        if let editor, editor.url == url, editor.isDirty {
+            let image = NSImage(cgImage: editor.image,
+                                size: NSSize(width: editor.image.width, height: editor.image.height))
+            pasteboard.writeObjects([image])
+            announce("Copied")
+            return
+        }
+
         var items: [NSPasteboardWriting] = [url as NSURL]
         if let image = NSImage(contentsOf: url) {
             items.insert(image, at: 0)
         }
         pasteboard.writeObjects(items)
-        chrome.update(filename: url.lastPathComponent,
-                      detail: detailDescription,
-                      note: "Copied")
-        chrome.flash()
+        announce("Copied")
     }
+
+    /// The standard Copy. A text selection in a document is handled by the
+    /// reader before it gets here; this is what ⌘C means everywhere else.
+    @objc func copy(_ sender: Any?) { copyImage(sender) }
 
     /// Copies the POSIX path as text — what you want when the destination is a
     /// terminal or a text field rather than an image view.
@@ -456,7 +684,9 @@ final class ViewerController: NSViewController, NSMenuItemValidation {
 
         switch event.charactersIgnoringModifiers {
         case "\u{1b}":            // Escape — trait 06, the app is disposable.
-            dismissWindow()
+            // With the inspector up, Escape puts that away first; a second
+            // press closes the viewer.
+            if inspector != nil { toggleInspector(nil) } else { dismissWindow() }
         case " ":
             // Space means "play" wherever something can play, and "next"
             // everywhere else — the two never compete because a still image
@@ -506,7 +736,7 @@ extension ViewerController: ImageCanvasDelegate {
     }
 
     func canvas(_ canvas: ImageCanvasView, requestsStep offset: Int) {
-        session.advance(by: offset)
+        step(by: offset)
     }
 
     /// Drives a zoom toward a corner, so the badge can be captured.
@@ -520,34 +750,89 @@ extension ViewerController: ImageCanvasDelegate {
     func toggleWindowedPresentation() { canvasDidRequestWindowedToggle(canvas) }
 
     func canvasDidRequestWindowedToggle(_ canvas: ImageCanvasView) {
-        guard let window = view.window as? ViewerWindow else { return }
+        // Not while a tool is up: a click that misses a slider must not
+        // rebuild the window around the picture being edited.
+        guard let window = view.window as? ViewerWindow, activeTool == nil else { return }
+        setPresentation(window.presentation == .fullBleed ? .windowed : .fullBleed,
+                        animated: !Accommodations.current.reduceMotion)
+    }
+
+    func setPresentation(_ next: ViewerWindow.Presentation, animated: Bool) {
+        guard let window = view.window as? ViewerWindow, window.presentation != next else { return }
         let screen = window.screen ?? NSScreen.main
         let room = screen.map { CGSize(width: $0.visibleFrame.width * 0.86,
                                        height: $0.visibleFrame.height * 0.86) }
             ?? CGSize(width: 1200, height: 800)
 
-        let next: ViewerWindow.Presentation = window.presentation == .fullBleed ? .windowed : .fullBleed
-        window.setPresentation(next, contentSize: canvas.preferredWindowedContentSize(maximum: room))
-        window.title = session.currentURL?.lastPathComponent ?? "Casa"
+        let size = isDocumentActive
+            ? pdfPane.preferredContentSize(maximum: CGSize(width: room.width, height: room.height / 0.86 * 0.94))
+            : canvas.preferredWindowedContentSize(maximum: room)
+
+        // The reader's toolbar belongs to the titled window only. It has to
+        // be gone before the title bar is, and arrive after it.
+        if next == .fullBleed { window.toolbar = nil }
+        window.setPresentation(next, contentSize: size, animated: animated)
         // Insets differ between the two modes, and the free-pan offset belongs
         // to the old geometry.
+        syncDocumentMode()
+        updateWindowTitle()
         updateCanvasInsets()
-        canvas.fit(animated: !Accommodations.current.reduceMotion)
+        if !isDocumentActive { canvas.fit(animated: animated) }
     }
 
-    /// Goes through `performClose` rather than `close` so the window delegate
-    /// can run the shrink-to-centre first.
-    private func dismissWindow() {
-        if let viewer = view.window as? ViewerWindow {
-            viewer.dismissAnimated()
-        } else {
-            view.window?.close()
+    /// Every way out of the window comes through here, so unsaved work is
+    /// asked about once, in one place.
+    func dismissWindow() {
+        leaveCurrent { [self] in
+            if let viewer = view.window as? ViewerWindow {
+                viewer.dismissAnimated()
+            } else {
+                view.window?.close()
+            }
         }
+    }
+
+    /// Everything laid over the photograph follows it from here.
+    private func canvasGeometryChanged() {
+        cropOverlay?.geometryChanged()
+        markupView?.geometryChanged()
+        guard let liveText else { return }
+        // A turned picture no longer matches the text that was read off it.
+        if canvas.quarterTurns != 0 || !canvas.hasImage {
+            liveText.clear()
+        } else {
+            liveText.view.frame = view.convert(canvas.displayedRect, from: canvas)
+        }
+    }
+
+    /// Reads the text in the picture once it is sharp and nothing else is
+    /// going on.
+    private func readTextIfSettled() {
+        guard let shown = canvas.displayed, shown.tier >= .display else {
+            liveText?.clear()
+            return
+        }
+        guard LiveText.isSupported, activeTool == nil, !isDocumentActive, !isVideo,
+              canvas.playable == .none, canvas.quarterTurns == 0 else { return }
+
+        let reader = liveText ?? {
+            let reader = LiveText()
+            view.addSubview(reader.view, positioned: .above, relativeTo: canvas)
+            liveText = reader
+            return reader
+        }()
+        reader.view.frame = view.convert(canvas.displayedRect, from: canvas)
+        // The file, plus which edit of it this is: a flip moves every word.
+        let edit = editor.map { "\(ObjectIdentifier($0.image).hashValue)" } ?? "file"
+        reader.analyze(shown.cgImage, key: "\(session.currentURL?.path ?? "")#\(edit)")
     }
 
     /// The first bitmap is what opens the window.
     func canvasDidShowImage(_ canvas: ImageCanvasView) {
+        readTextIfSettled()
         (view.window as? ViewerWindow)?.revealIfWaiting()
+        // Whether there is anything to edit is known only now, too.
+        updateNavigationControls()
         // Dimensions are known only once a bitmap has landed.
         if let url = session.currentURL, !chrome.isShowingNote {
             chrome.update(filename: url.lastPathComponent, detail: detailDescription)
@@ -555,6 +840,7 @@ extension ViewerController: ImageCanvasDelegate {
     }
 
     func canvasPlaybackStateChanged(_ canvas: ImageCanvasView) {
+        updateNavigationControls()
         chrome.updatePlayback(canPlay: canvas.playable != .none, isPlaying: canvas.isPlaying)
     }
 }
@@ -564,7 +850,7 @@ extension ViewerController: ImageCanvasDelegate {
 extension ViewerController: FilmstripDelegate {
 
     func filmstrip(_ strip: FilmstripView, didSelect index: Int) {
-        session.go(to: index)
+        step(by: index - session.index)
     }
 
     /// Synchronous because the rail asks for every visible cell on every

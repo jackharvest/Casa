@@ -109,7 +109,7 @@ final class Benchmark {
         summarize("first-pixels", firstPaintTimes)
         summarize("sharp", sharpTimes)
         if unreadable > 0 {
-            Log.launch.notice("benchmark: \(self.unreadable, privacy: .public) unreadable files skipped")
+            Log.launch.notice("benchmark: \(self.unreadable, privacy: .public) files skipped (unreadable, or documents)")
         }
         Log.launch.notice("benchmark: complete")
     }

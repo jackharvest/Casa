@@ -3,7 +3,7 @@
 Written to make picking this up again cheap. Everything here is either
 non-obvious, hard-won, or would cost an hour to rediscover.
 
-Last worked on: **23 September 2026**.
+Last worked on: **16 November 2026**.
 
 Repo: <https://github.com/jackharvest/Casa> · Released through GitHub Releases,
 signed, and installed in place by the app itself.
@@ -135,6 +135,92 @@ running app untouched.
 bundle or its parent is not writable, which is checked *before* offering the
 update rather than after a download. A privileged install (`/Applications`
 owned by root) would need `SMJobBless` or an admin prompt and is not built.
+
+## 2k. Preview parity (0.11, 16 Nov 2026)
+
+The owner asked for Preview parity and beyond. This reverses the "no editing"
+line in §8, on purpose. What exists now, and the decisions behind it:
+
+**PDFs are read, not rasterised.** `UI/Reader/` wraps PDFKit's `PDFView`.
+`Session.loadCurrent` skips the ladder for a PDF and the controller shows
+`PDFPane` instead of the canvas. Two bearings:
+
+- *floating*: walked onto in a folder. One page on the veil, arrows turn
+  pages and fall through to the next file at either end.
+- *reading*: opened directly, or `Return`. Titled window, sidebar (pages,
+  and contents when the PDF has an outline), a real `NSToolbar` with search.
+  The floating chrome is suspended here.
+
+`⌘[`/`⌘]` always step files. This is the answer to old open item 6.
+
+**Editing is a stack of bitmaps.** `ImageEditor` holds one upright
+full-resolution `CGImage`; each tool returns a new one; undo is the previous
+one (8 levels). `Core/ImageEdits.swift` is pure and covered by `--selfcheck`.
+Rotation is still the lossless EXIF path *until* an editor exists, after which
+a turn is baked like any other edit.
+
+**Nothing is written until Save.** Leaving a file with unsaved work goes
+through `ViewerController.leaveCurrent`, the one place that asks. Every route
+(arrows, rail, open, close, quit) must use it; `session.go` directly skips it.
+
+**Save trashes the original first**, then writes, then copies creation date
+and Finder tags across. Formats ImageIO cannot write (RAW, SVG) and clipboard
+files become Export instead.
+
+**Markup has two back ends and one bar.** Photos: `MarkupView` holds value-type
+`MarkupItem`s, flattened by the same renderer that draws them. PDFs: real
+`PDFAnnotation`s made in `ReaderPDFView`. No cover-up tool on PDFs, because a
+black box over PDF text is not redaction.
+
+Traps hit:
+
+- **`NSResponder` answers `selectAll:` and does nothing**, so it never reached
+  the controller. The canvas overrides it and forwards.
+- **PDFKit ink paths and line endpoints are relative to the annotation's
+  bounds**, not the page.
+- **`PDFView.backgroundColor = .clear` is not enough to float a page.** The
+  inner scroll view and its clip view each draw a background.
+- **`PDFView` validates menu items but does not publish the method.**
+  `ReaderPDFView.validateMenuItem` calls the inherited IMP by hand.
+- **PDFKit posts nothing when a form field changes.** A click on a widget
+  (`PDFViewAnnotationHit`) marks the document edited.
+- **Never write a PDF over the file it was loaded from.** Scratch file, then
+  `replaceItemAt`.
+- **Print needs its own selector.** `print:` on a menu item reaches
+  `NSWindow` and prints the window.
+- `--perform crop:,toggleInspector:` sends actions down the responder chain
+  after launch, 1.2 s apart. All the 0.11 screenshots were driven with it.
+
+Sixteen-bit images stay 16-bit through geometry edits.
+
+### Parity backlog
+
+The running list of what Preview does that Casa does not yet, or does worse.
+Strike items through as they land, the way §9 does.
+
+Missing:
+
+1. Signatures (trackpad, camera, iPhone) for photos and PDFs.
+2. PDF sticky notes.
+3. Bookmarks in PDFs.
+4. Multi-page TIFF shown as pages.
+5. Import from scanner and iPhone (Continuity Camera).
+6. A loupe.
+7. Assign colour profile.
+8. Multiple windows, and opening several files side by side.
+
+Rough edges:
+
+9. HDR gain maps are dropped when an edited photo is saved.
+10. PDF form edits are detected by click, so a clicked-but-unchanged form
+    asks to be saved.
+11. Undoing a PDF annotation restyle registers no redo; neither does undoing
+    a trash.
+
+Built but never clicked through by hand (0.11): Share, Open With, Rename,
+Duplicate, Set as Desktop Picture, drag-and-drop, New from Clipboard, Adjust
+Size, PDF page insert/delete/reorder, form filling, PDF export options, and an
+actual print job.
 
 ## 2g. Matching the original's feel
 
@@ -499,6 +585,8 @@ Sources/Casa/
     SupportedTypes   what we can open, asked of ImageIO at runtime
     FormatSelfTest   the coverage harness
   UI/        ViewerWindow, ImageCanvasView, ChromeView, FilmstripView, IconButton
+    Editing/   ImageEditor, crop frame, markup, colour and inspector panels
+    Reader/    PDFPane, ReaderPDFView, the reading window's toolbar
   Support/   Metrics, Accommodations, Preferences, Log, LaunchClock, Benchmark
 ```
 
@@ -662,8 +750,7 @@ point or ⌘Q silently does nothing for the first window.
    distribution needs a Developer ID and notarization — worth doing before
    telling anyone about this.
 
-6. **Multi-page PDF navigation.** Page 1 renders; pages 2+ are unreachable.
-   Needs a decision about how page navigation coexists with file navigation.
+6. ~~Multi-page PDF navigation.~~ Done in 0.11; see §2k.
 
 7. **Finder sort coverage.** List and icon views expose their sort order; column
    and gallery (`flow view`) expose nothing and fall back to name order, which
@@ -693,9 +780,10 @@ Recording these so they are not relitigated from scratch.
   give the same coverage instantly.
 - **Hiding the Dock by default.** The rail is pinned to the bottom edge and the
   Dock sits on top of it. ⇧⌘D opts into the full-bleed look.
-- **Editing, tagging, a library, face detection, cloud anything.** Picasa-the-
-  library is a different product and it is what killed every previous attempt at
-  Picasa-the-viewer.
+- **Tagging, a library, face detection, cloud anything.** Picasa-the-library
+  is a different product and it is what killed every previous attempt at
+  Picasa-the-viewer. (Editing was on this list until 0.11, when the owner
+  asked for Preview parity; see §2k.)
 - **Wrapping at folder ends.** Navigation clamps. Wrapping makes it impossible
   to tell you have reached the end.
 - **Upscaling on fit.** A 200 px thumbnail opens at 200 px, not blown across a

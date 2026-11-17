@@ -72,6 +72,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         present(first)
     }
 
+    // MARK: - File menu
+
+    /// These three live here rather than on the viewer so they work with no
+    /// viewer on screen — from the welcome window, or straight after launch.
+    @objc func openDocument(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image, .pdf, .movie, .video, .svg]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if let current = controller?.currentFile, window?.isVisible == true {
+            panel.directoryURL = current.deletingLastPathComponent()
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        present(url)
+    }
+
+    @objc func openRecent(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        present(url)
+    }
+
+    /// Opens whatever image is on the clipboard — a screenshot, something
+    /// copied out of a browser — as if it were a file.
+    @objc func newFromClipboard(_ sender: Any?) {
+        do {
+            present(try FileActions.fileFromClipboard())
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Nothing to open"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    /// Quitting is one more way of leaving a file, so it asks about unsaved
+    /// work the same way closing does.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let controller, let window, window.isVisible, controller.hasUnsavedChanges else {
+            return .terminateNow
+        }
+        controller.leaveCurrent({
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }, cancelled: {
+            NSApp.reply(toApplicationShouldTerminate: false)
+        })
+        return .terminateLater
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // Trait 06: the viewer is disposable. Closing the window is the whole
         // interaction ending, not a document being put away — leaving a
@@ -229,6 +277,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if CommandLine.arguments.contains("--demo-zoom") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak controller] in
                 controller?.demoZoom()
+            }
+        }
+
+        // `--perform crop:,toggleInspector:` sends menu actions down the
+        // responder chain after launch, one every 1.2 s, so any feature can
+        // be reached and captured from a script.
+        if let flag = CommandLine.arguments.firstIndex(of: "--perform"),
+           CommandLine.arguments.indices.contains(flag + 1) {
+            let actions = CommandLine.arguments[flag + 1].split(separator: ",").map(String.init)
+            for (index, name) in actions.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5 + 1.2 * Double(index)) {
+                    NSApp.sendAction(Selector(name), to: nil, from: nil)
+                }
             }
         }
 

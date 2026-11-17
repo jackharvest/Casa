@@ -67,6 +67,7 @@ final class ImageCanvasView: NSView {
         // common reason a viewer feels sluggish. Disable them at the source;
         // the two places that genuinely want animation opt back in explicitly.
         addSubview(zoomBadge)
+        registerForDraggedTypes([.fileURL])
         imageLayer.actions = [
             "contents": NSNull(), "bounds": NSNull(),
             "position": NSNull(), "transform": NSNull(),
@@ -293,9 +294,14 @@ final class ImageCanvasView: NSView {
 
     // MARK: - Content
 
+    /// The bitmap on screen and the rung it came from, for anything that
+    /// wants to read the picture rather than show it.
+    private(set) var displayed: DecodedImage?
+
     func display(_ image: DecodedImage, preservingZoom: Bool) {
         let isDifferentImage = imagePixelSize != image.nativePixelSize
         imagePixelSize = image.nativePixelSize
+        displayed = image
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -348,6 +354,8 @@ final class ImageCanvasView: NSView {
         imageLayer.contents = nil
         CATransaction.commit()
         imagePixelSize = .zero
+        displayed = nil
+        onGeometryChange?()
     }
 
     // MARK: - Geometry
@@ -411,6 +419,83 @@ final class ImageCanvasView: NSView {
         let middle = CGPoint(x: bounds.midX, y: bounds.midY)
         setScale(targetScale, anchoredAt: middle, animated: animated)
         announceZoom(at: middle)
+    }
+
+    // MARK: - Editing support
+
+    /// Fired whenever the photograph moves or changes size on screen, so the
+    /// crop frame and the markup overlay can follow it.
+    var onGeometryChange: (() -> Void)?
+
+    /// While an overlay is tracking the photograph, geometry changes are
+    /// applied at once. An eased layer would arrive 180 ms after the overlay
+    /// drawn on top of it, and the two would visibly part company.
+    var tracksOverlay = false
+
+    /// View coordinates of an image pixel. Only meaningful while the picture
+    /// is upright, which the editor guarantees by baking any turn first.
+    func viewPoint(forImagePoint point: CGPoint) -> CGPoint {
+        let rect = displayedRect
+        return CGPoint(x: rect.minX + point.x * scale, y: rect.minY + point.y * scale)
+    }
+
+    func imagePoint(forViewPoint point: CGPoint) -> CGPoint {
+        let rect = displayedRect
+        return CGPoint(x: (point.x - rect.minX) / scale, y: (point.y - rect.minY) / scale)
+    }
+
+    /// Swaps the pixels on screen without touching geometry or zoom — the
+    /// colour sliders' live preview.
+    func setPreviewContents(_ image: CGImage) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageLayer.contents = image
+        CATransaction.commit()
+    }
+
+    /// Stands the picture upright again without animating, once a turn has
+    /// been baked into the pixels being shown.
+    func resetRotation() {
+        quarterTurns = 0
+    }
+
+    /// The controller supplies the contextual menu, so the canvas does not
+    /// need to know what can be done to a file.
+    var contextMenuProvider: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenuProvider?()
+    }
+
+    /// ⌘A. `NSResponder` answers `selectAll:` itself and does nothing with
+    /// it, so without this the message stops here and never reaches the
+    /// controller, which knows whether the photograph has words to select.
+    var onSelectAll: (() -> Void)?
+
+    override func selectAll(_ sender: Any?) {
+        onSelectAll?()
+    }
+
+    // MARK: - Drop
+
+    /// A file dropped on the viewer opens in it, the same as one dropped on
+    /// the Dock icon.
+    var onDrop: ((URL) -> Void)?
+
+    private func droppedFile(_ sender: NSDraggingInfo) -> URL? {
+        let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        return urls?.first(where: SupportedTypes.canOpen)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedFile(sender) != nil ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let url = droppedFile(sender) else { return false }
+        onDrop?(url)
+        return true
     }
 
     // MARK: - Zoom
@@ -530,7 +615,7 @@ final class ImageCanvasView: NSView {
         let angle = CGFloat(quarterTurns) * .pi / 2
 
         CATransaction.begin()
-        if animated, !accommodations.reduceMotion {
+        if animated, !accommodations.reduceMotion, !tracksOverlay {
             CATransaction.setAnimationDuration(0.18)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         } else {
@@ -549,6 +634,7 @@ final class ImageCanvasView: NSView {
         CATransaction.commit()
 
         window?.invalidateCursorRects(for: self)
+        onGeometryChange?()
     }
 
     /// Puts the percentage beside the pointer. Skipped while fitted, because

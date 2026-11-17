@@ -17,6 +17,12 @@ enum VectorSource {
         case svg
     }
 
+    /// Whether this is a PDF — the one format that is read rather than looked
+    /// at, and so is shown by the document reader instead of the canvas.
+    static func isPDF(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)?.conforms(to: .pdf) ?? false
+    }
+
     /// Whether this URL is something we render rather than decode.
     static func kind(of url: URL) -> Kind? {
         guard let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType else {

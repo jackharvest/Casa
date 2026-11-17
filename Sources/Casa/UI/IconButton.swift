@@ -31,6 +31,22 @@ final class IconButton: NSButton {
         didSet { if isLit != oldValue { applyTint() } }
     }
 
+    /// The chosen one of a set — the current drawing tool. Held on a visible
+    /// ground rather than merely brightened, because "which tool am I holding"
+    /// has to be readable at a glance.
+    var isOn = false {
+        didSet {
+            guard isOn != oldValue else { return }
+            applyTint()
+            applyGround(animated: true)
+        }
+    }
+
+    /// Replaces the glyph's white, for the swatch that shows the ink colour.
+    var tintOverride: NSColor? {
+        didSet { applyTint() }
+    }
+
     /// A control with nothing to do stays in place but recedes, so the
     /// toolbar's shape never changes under the pointer.
     override var isEnabled: Bool {
@@ -154,7 +170,11 @@ final class IconButton: NSButton {
         case .disc:
             contentTintColor = NSColor(white: 0.08, alpha: isEnabled ? 1 : 0.5)
         case .plain:
-            let resting: CGFloat = contrast ? 1 : (isLit ? 1 : 0.8)
+            if let tintOverride {
+                contentTintColor = tintOverride.withAlphaComponent(isEnabled ? 1 : 0.28)
+                return
+            }
+            let resting: CGFloat = contrast ? 1 : (isLit || isOn ? 1 : 0.8)
             contentTintColor = NSColor(white: 1, alpha: isEnabled ? resting : 0.28)
         }
     }
@@ -173,7 +193,7 @@ final class IconButton: NSButton {
             let white: CGFloat = isPressed ? 0.78 : (isHovered && isEnabled ? 1 : 0.92)
             ground = NSColor(white: white, alpha: isEnabled ? 1 : 0.3)
         case .plain:
-            let alpha: CGFloat = !isEnabled ? 0 : (isPressed ? 0.26 : (isHovered ? 0.14 : 0))
+            let alpha: CGFloat = !isEnabled ? 0 : (isPressed ? 0.3 : (isOn ? 0.24 : (isHovered ? 0.14 : 0)))
             ground = NSColor(white: 1, alpha: alpha)
         }
 

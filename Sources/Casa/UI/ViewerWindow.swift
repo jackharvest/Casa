@@ -179,7 +179,7 @@ final class ViewerWindow: NSWindow {
     }
 
     /// Switches between full-bleed and a window hugging the photograph.
-    func setPresentation(_ mode: Presentation, contentSize: CGSize) {
+    func setPresentation(_ mode: Presentation, contentSize: CGSize, animated: Bool = true) {
         guard mode != presentation else { return }
         presentation = mode
         guard let screen = screen ?? NSScreen.main else { return }
@@ -205,12 +205,13 @@ final class ViewerWindow: NSWindow {
                               width: size.width, height: size.height)
             let framed = frameRect(forContentRect: rect)
             setFrame(framed, display: true,
-                     animate: !Accommodations.current.reduceMotion)
+                     animate: animated && !Accommodations.current.reduceMotion)
 
         case .fullBleed:
             styleMask = [.borderless, .resizable]
             titlebarAppearsTransparent = true
             titleVisibility = .hidden
+            subtitle = ""
             isMovableByWindowBackground = false
             hasShadow = false
             isOpaque = false
@@ -271,7 +272,12 @@ final class ViewerWindowDelegate: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let window = sender as? ViewerWindow else { return true }
         if window.isDismissing { return true }
-        window.dismissAnimated()
+        // Through the controller, which asks about unsaved work first.
+        if let controller = window.contentViewController as? ViewerController {
+            controller.dismissWindow()
+        } else {
+            window.dismissAnimated()
+        }
         return false
     }
 

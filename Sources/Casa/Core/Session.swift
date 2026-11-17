@@ -43,6 +43,19 @@ final class Session {
         urls.indices.contains(index) ? urls[index] : nil
     }
 
+    /// Whether the current file is read rather than looked at. The canvas
+    /// stays empty for these; the controller shows the document reader.
+    var currentIsDocument: Bool {
+        currentURL.map(VectorSource.isPDF) ?? false
+    }
+
+    /// Set while the editor owns the canvas. Nothing the ladder decodes may
+    /// reach the screen then — a sharper tier landing over a half-drawn crop
+    /// would replace the user's work with the file as it was.
+    var isEditing = false {
+        didSet { if isEditing { generation += 1 } }
+    }
+
     var positionDescription: String {
         urls.isEmpty ? "" : "\(index + 1) of \(urls.count)"
     }
@@ -199,6 +212,20 @@ final class Session {
         }
     }
 
+    /// Forgets a turn without writing it. The editor calls this once the
+    /// turn has been baked into the pixels it is working on.
+    func discardPendingRotation() {
+        pendingRotation = nil
+    }
+
+    /// Shows the current file again from disk, as if freshly navigated to.
+    func reloadCurrent() {
+        guard currentURL != nil else { return }
+        generation += 1
+        loadCurrent(generation: generation, isFirstPaint: false)
+        onChange?(self)
+    }
+
     /// Writes the pending rotation to disk. Called on navigation and on close,
     /// which is exactly when Picasa committed one.
     func commitRotation() {
@@ -232,6 +259,88 @@ final class Session {
         }
     }
 
+    // MARK: - Files changing underneath us
+
+    /// The whole picture, for the editor to work on.
+    func fullResolutionImage() async -> DecodedImage? {
+        guard let url = currentURL else { return nil }
+        return await pipeline.image(url, tier: .full, maxPixelSize: 0)
+    }
+
+    /// A file was rewritten — an edit was saved over it. Everything cached
+    /// for it is stale, and if it is on screen it is decoded again.
+    func fileChanged(_ url: URL) {
+        if pendingRotation?.url == url { pendingRotation = nil }
+        let isCurrent = url == currentURL
+        if isCurrent { generation += 1 }
+        let generation = self.generation
+        Task { [weak self] in
+            guard let self else { return }
+            await self.pipeline.forget(url)
+            self.onThumbnailInvalidated?(url)
+            if isCurrent, generation == self.generation {
+                self.loadCurrent(generation: generation, isFirstPaint: false)
+                self.onChange?(self)
+            }
+        }
+    }
+
+    /// Takes a file out of the list — it went to the Trash, or was moved.
+    /// The neighbour that slides into its place is shown, which is what makes
+    /// delete-and-advance a culling gesture rather than a dead end.
+    func remove(_ url: URL) {
+        guard let position = urls.firstIndex(of: url) else { return }
+        if pendingRotation?.url == url { pendingRotation = nil }
+        urls.remove(at: position)
+        Task { await pipeline.forget(url) }
+
+        if urls.isEmpty {
+            index = 0
+            generation += 1
+            canvas?.clearPlayback()
+            canvas?.clear()
+        } else if position < index {
+            index -= 1
+        } else if position == index {
+            index = min(index, urls.count - 1)
+            generation += 1
+            loadCurrent(generation: generation, isFirstPaint: false)
+        }
+        onChange?(self)
+        schedulePreload()
+    }
+
+    /// Puts a file into the list at a position and shows it. Used when a
+    /// trashed photo comes back, and for a duplicate or an export that lands
+    /// in the folder being walked.
+    func insert(_ url: URL, at position: Int) {
+        let url = url.resolvingSymlinksInPath().standardizedFileURL
+        commitRotation()
+        if let existing = urls.firstIndex(of: url) {
+            go(to: existing)
+            return
+        }
+        let slot = min(max(position, 0), urls.count)
+        urls.insert(url, at: slot)
+        index = slot
+        generation += 1
+        loadCurrent(generation: generation, isFirstPaint: false)
+        onChange?(self)
+        schedulePreload()
+    }
+
+    /// A file was renamed. Same photograph, new key.
+    func replace(_ old: URL, with new: URL) {
+        guard let position = urls.firstIndex(of: old) else { return }
+        let new = new.resolvingSymlinksInPath().standardizedFileURL
+        if let pending = pendingRotation, pending.url == old {
+            pendingRotation = (new, pending.turns)
+        }
+        urls[position] = new
+        Task { await pipeline.forget(old) }
+        onChange?(self)
+    }
+
     /// Decodes a filmstrip thumbnail. The rail drives this; the pipeline
     /// bounds how many are kept.
     func stripThumbnail(for url: URL) async -> DecodedImage? {
@@ -246,6 +355,20 @@ final class Session {
         // running after the user has moved on is the rudest thing a viewer can
         // do, so this happens before anything else.
         canvas.clearPlayback()
+
+        // A PDF is not put through the ladder at all. The document reader
+        // draws it, so that its text can be selected and searched and every
+        // page reached, none of which a bitmap of page one can offer.
+        if VectorSource.isPDF(url) {
+            canvas.clear()
+            // Reported as "nothing decoded", which is true, and which keeps
+            // a document from counting as a zero-millisecond photograph in
+            // the navigation benchmark.
+            onPaint?(nil)
+            schedulePreload()
+            Task { await adoptFinderSortOrder(for: url, generation: generation) }
+            return
+        }
         let budget = canvas.displayPixelBudget
 
         Task { [weak self] in
@@ -361,7 +484,7 @@ final class Session {
     ///
     /// Zoom and pan are preserved: this is the same picture, drawn better.
     func refreshForResolutionChange() {
-        guard let url = currentURL, let canvas else { return }
+        guard !isEditing, !currentIsDocument, let url = currentURL, let canvas else { return }
         let generation = self.generation
 
         Task { [weak self] in
@@ -380,7 +503,7 @@ final class Session {
     /// Promotes the current image to a full decode. Called only when the canvas
     /// reports the user has zoomed past the proxy's useful resolution.
     func escalateToFullResolution() {
-        guard let url = currentURL, let canvas else { return }
+        guard !isEditing, !currentIsDocument, let url = currentURL, let canvas else { return }
         let generation = self.generation
 
         Task { [weak self] in
